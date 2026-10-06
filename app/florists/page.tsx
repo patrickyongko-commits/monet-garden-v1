@@ -3,6 +3,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import {useEffect,useState} from 'react'
 import {supabase} from '@/lib/supabase'
+import Shell from '@/components/Shell'
 
 const db=supabase
 
@@ -47,7 +48,7 @@ export default function Florists(){
     else{setMsg('Florist deleted.');load()}
   }
 
-  return <Shell active="Florists">
+  return <Shell active="Orders">
     <div className="top">
       <div><div className="title">Florists</div><div className="sub">Register and manage florist names</div></div>
       <Link className="btn" href="/">← Back</Link>
@@ -75,7 +76,4 @@ export default function Florists(){
       </table>
     </div>
   </Shell>
-}
-function Shell({children,active}:{children:React.ReactNode,active:string}){
-  return <div className="wrap"><aside className="side"><Image src="/logo.png" alt="MONET GARDEN" width={145} height={145} className="logo"/><nav className="nav">{[['Dashboard','/'],['Orders','/orders'],['Customers','/customers'],['Florists','/florists'],['Delivery','/delivery'],['Sales Report','/reports'],].map(([n,h])=><Link key={h} className={active===n?'active':''} href={h}>{n}</Link>)}</nav></aside><main className="main">{children}</main></div>
 }
