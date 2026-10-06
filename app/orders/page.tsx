@@ -3,6 +3,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import {useEffect,useMemo,useState} from 'react'
 import {supabase} from '@/lib/supabase'
+import Shell from '@/components/Shell'
 const db=supabase
 const statusOptions=[['confirmed','Confirmed'],['delivered_collected','Delivered / Collected'],['cancelled','Cancelled']]
 const fulfilmentLabel=(v:string)=>v==='delivery'?'Delivery':v==='walk_in'?'Walk In':'Self Pick'
@@ -26,7 +27,7 @@ export default function Orders(){
  return <Shell active="Orders">
   <div className="top">
     <div><div className="title">Orders</div><div className="sub">Active orders arranged by collection date and time</div></div>
-    <div style={{display:'flex',gap:8}}><Link className="btn" href="/orders/deleted">Deleted History</Link><Link className="btn primary" href="/orders/new">+ New Order</Link></div>
+    <div style={{display:'flex',gap:8}}><Link className="btn" href="/florists">Manage Florists</Link><Link className="btn" href="/orders/deleted">Deleted History</Link><Link className="btn primary" href="/orders/new">+ New Order</Link></div>
   </div>
   {msg&&<div className="msg">{msg}</div>}
   <div className="grid dashboardStats" style={{marginBottom:16}}><div className="card"><div className="label">Total Revenue</div><div className="num">RM {totalRevenue.toFixed(2)}</div></div><div className="card"><div className="label">This Month Revenue</div><div className="num">RM {thisMonthRevenue.toFixed(2)}</div></div></div>
@@ -66,4 +67,3 @@ export default function Orders(){
     </div>
   </div>
 </Shell>}
-function Shell({children,active}:{children:React.ReactNode,active:string}){return <div className="wrap"><aside className="side"><Image src="/logo.png" alt="MONET GARDEN" width={145} height={145} className="logo"/><nav className="nav">{[['Dashboard','/'],['Orders','/orders'],['Customers','/customers'],['Florists','/florists'],['Delivery','/delivery'],['Sales Report','/reports'],].map(([n,h])=><Link key={h} className={active===n?'active':''} href={h}>{n}</Link>)}</nav></aside><main className="main">{children}</main></div>}

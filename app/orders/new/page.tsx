@@ -4,6 +4,7 @@ import Link from 'next/link'
 import {Suspense,useEffect,useRef,useState} from 'react'
 import {useRouter,useSearchParams} from 'next/navigation'
 import {supabase} from '@/lib/supabase'
+import Shell from '@/components/Shell'
 const db=supabase
 const types=['Bouquet','Bridal Bouquet','Corsage','Basket','Stand','Table Arrangement','Vase','Wedding Deco','Centerpiece','Workshop','Others']
 const occasions=['Anniversary','Birthday','Congratulations','Condolences',"Father’s Day",'Get Well Soon','Graduation','House Warming',"Mother’s Day",'Others',"Valentine’s Day",'Wedding']
@@ -18,14 +19,45 @@ function Page(){
  useEffect(()=>{db.from('florists').select('*').eq('active',true).order('name').then(({data})=>setFlorists(data||[]));if(editId)loadOrder(editId);else if(duplicateId)loadOrder(duplicateId,true)},[editId,duplicateId])
  async function loadOrder(id:string,duplicate=false){const {data,error}=await db.from('orders').select('*').eq('id',id).single();if(error){setMsg(error.message);return};const qty=Number(data.quantity||1),unit=data.unit_price!==null&&data.unit_price!==undefined?data.unit_price:(Number(data.amount||0)/Math.max(qty,1));setF({order_date:duplicate?'':data.order_date||today(),collection_date:duplicate?'':data.collection_date||'',time_from:duplicate?'':data.time_from||'',time_to:duplicate?'':data.time_to||'',florist_name:data.florist_name||'',customer_name:data.customer_name||'',customer_phone:data.customer_phone||'',occasion:data.occasion||'',order_type:data.order_type||'Bouquet',other_item_type:data.other_item_type||'',quantity:qty,unit_price:duplicate?'':unit,amount:duplicate?'':(data.amount??''),status:duplicate?'confirmed':(data.status||'confirmed'),fulfilment:data.fulfilment||'self_pick',address:data.address||'',wishing_card:!!data.wishing_card,wishing_message:data.wishing_message||'',reference_image_url:data.reference_image_url||'',remarks:data.remarks||''});setPhotoPreview(data.reference_image_url||null);if(duplicate)setMsg('Order details copied. Please select the new order and collection schedule.')}
  function update(k:string,v:any){setF((x:any)=>({...x,[k]:v}))}
- function choosePhoto(e:React.ChangeEvent<HTMLInputElement>){const file=e.target.files?.[0];if(!file)return;setPhotoFile(file);setPhotoPreview(URL.createObjectURL(file))}
- function pastePhoto(e:React.ClipboardEvent<HTMLDivElement>){const items=Array.from(e.clipboardData.items);const item=items.find(x=>x.type.startsWith('image/'));if(!item)return;const file=item.getAsFile();if(!file)return;e.preventDefault();const ext=(file.type.split('/')[1]||'png').replace('jpeg','jpg');const named=new File([file],`pasted-reference-${Date.now()}.${ext}`,{type:file.type});setPhotoFile(named);setPhotoPreview(URL.createObjectURL(named));setMsg('Reference image pasted successfully. Remember to save the order.')}
- async function uploadPhoto(){if(!photoFile)return f.reference_image_url||'';const ext=(photoFile.name.split('.').pop()||'jpg').toLowerCase();const path=`orders/${crypto.randomUUID()}.${ext}`;const {error}=await db.storage.from('order-references').upload(path,photoFile,{contentType:photoFile.type||'image/jpeg',upsert:false});if(error)throw new Error(`Reference image upload failed: ${error.message}. Please run the storage setup SQL included with this package.`);const {data}=db.storage.from('order-references').getPublicUrl(path);if(!data?.publicUrl)throw new Error('Reference image URL could not be created.');return data.publicUrl}
+ async function compressImage(file:File){
+  if(!file.type.startsWith('image/')) return file
+  const originalSize=file.size
+  const maxSize=2000, targetMin=500*1024, targetMax=850*1024
+  const bitmap=await createImageBitmap(file)
+  const scale=Math.min(1,maxSize/Math.max(bitmap.width,bitmap.height))
+  const width=Math.max(1,Math.round(bitmap.width*scale)),height=Math.max(1,Math.round(bitmap.height*scale))
+  const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height
+  const ctx=canvas.getContext('2d');if(!ctx){bitmap.close();return file}
+  ctx.drawImage(bitmap,0,0,width,height);bitmap.close()
+  const encode=async(q:number)=>await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/jpeg',q))
+  let quality=0.85,blob=await encode(quality)
+  if(!blob)return file
+  if(originalSize>targetMin && blob.size<targetMin){
+    blob=await encode(0.95)
+  }
+  if(blob && blob.size>targetMax){
+    let lo=0.55,hi=quality,best:Blob|null=null
+    for(let i=0;i<7;i++){const q=(lo+hi)/2;const b=await encode(q);if(!b)break;if(b.size>targetMax){hi=q}else{best=b;lo=q}}
+    if(best)blob=best
+  }
+  if(!blob)return file
+  // Never inflate a small original just to hit a size target.
+  if(originalSize<targetMin && blob.size>originalSize) return file
+  const base=(file.name.replace(/\.[^.]+$/,'')||'reference-image').replace(/[^a-z0-9_-]+/gi,'_')
+  return new File([blob],`${base}.jpg`,{type:'image/jpeg',lastModified:Date.now()})
+}
+ async function preparePhoto(file:File){
+  try{const compressed=await compressImage(file);setPhotoFile(compressed);setPhotoPreview(URL.createObjectURL(compressed));setMsg(`Image prepared: ${(compressed.size/1024).toFixed(0)} KB. It will be uploaded automatically when you save.`)}
+  catch{setPhotoFile(file);setPhotoPreview(URL.createObjectURL(file));setMsg('Image preview ready. Compression will be attempted when saving.')}
+ }
+ async function choosePhoto(e:React.ChangeEvent<HTMLInputElement>){const file=e.target.files?.[0];if(!file)return;await preparePhoto(file)}
+ function pastePhoto(e:React.ClipboardEvent<HTMLDivElement>){const items=Array.from(e.clipboardData.items);const item=items.find(x=>x.type.startsWith('image/'));if(!item)return;const file=item.getAsFile();if(!file)return;e.preventDefault();const ext=(file.type.split('/')[1]||'png').replace('jpeg','jpg');const named=new File([file],`pasted-reference-${Date.now()}.${ext}`,{type:file.type});void preparePhoto(named)}
+ async function uploadPhoto(){if(!photoFile)return f.reference_image_url||'';const file=await compressImage(photoFile);setPhotoFile(file);const path=`orders/${crypto.randomUUID()}.jpg`;const {error}=await db.storage.from('order-references').upload(path,file,{contentType:'image/jpeg',upsert:false});if(error)throw new Error(`Reference image upload failed: ${error.message}. Please run the storage setup SQL included with this package.`);const {data}=db.storage.from('order-references').getPublicUrl(path);if(!data?.publicUrl)throw new Error('Reference image URL could not be created.');return data.publicUrl}
  async function save(){setMsg('');const {data:{user}}=await db.auth.getUser();if(!user){setMsg('Please sign in.');return}if(!f.order_date){setMsg('Order Date is required.');return}if(!f.collection_date){setMsg('Collection Date is required.');return}if(!f.florist_name){setMsg('Please select a Florist.');return}if(!f.customer_name.trim()||!f.customer_phone.trim()){setMsg('Customer Name and Phone Number are required.');return}if(!f.order_type){setMsg('Please select an Item Type.');return}if(f.order_type==='Others'&&!f.other_item_type.trim()){setMsg('Please enter the Other Item Type.');return}if(Number(f.quantity)<1){setMsg('Quantity must be at least 1.');return}if(Number(f.unit_price)<0){setMsg('Unit Price cannot be negative.');return}if(f.time_from&&f.time_to&&f.time_from>f.time_to){setMsg('Time From must be before Time To.');return}if(f.fulfilment==='delivery'&&!f.address.trim()){setMsg('Please enter the Delivery Address.');return}setSaving(true);let imageUrl='';try{imageUrl=await uploadPhoto()}catch(e:any){setSaving(false);setMsg(e?.message||'Unable to save the reference image.');return}const qty=Math.max(1,Number(f.quantity||1)),unit=Math.max(0,Number(f.unit_price||0)),total=qty*unit;const payload={order_date:f.order_date,collection_date:f.collection_date,time_from:f.time_from||null,time_to:f.time_to||null,florist_name:f.florist_name,customer_name:f.customer_name.trim(),customer_phone:f.customer_phone.trim(),occasion:f.occasion||null,order_type:f.order_type,other_item_type:f.order_type==='Others'?(f.other_item_type||null):null,quantity:qty,unit_price:unit,amount:total,status:f.status||'confirmed',fulfilment:f.fulfilment,address:f.fulfilment==='delivery'?(f.address||null):null,wishing_card:!!f.wishing_card,wishing_message:f.wishing_card?(f.wishing_message||null):null,reference_image_url:imageUrl||null,remarks:f.remarks||null};const result=editId?await db.from('orders').update(payload).eq('id',editId):await db.from('orders').insert({...payload,created_by:user.id,deleted_at:null});setSaving(false);if(result.error){setMsg(result.error.message);return}r.push('/orders')}
  async function softDelete(){if(!editId){setMsg('Save the order first before deleting it.');return}if(!window.confirm('Move this order to Deleted History?'))return;const {error}=await db.from('orders').update({deleted_at:new Date().toISOString()}).eq('id',editId);if(error)setMsg(error.message);else r.push('/orders/deleted')}
  function duplicate(){if(editId)r.push(`/orders/new?duplicate=${editId}`);else setMsg('Save the order first before duplicating it.')}
  function printTicket(){window.print()}
- return <Shell active="New Order"><div className="top"><div><div className="title">{editId?'Edit Order':'New Order'}</div><div className="sub">Create a MONET GARDEN flower order</div></div><Link className="btn" href="/orders">← Back</Link></div>{msg&&<div className="msg">{msg}</div>}<div className="card"><div className="form neatForm orderFlow">
+ return <Shell active="Orders"><div className="top"><div><div className="title">{editId?'Edit Order':'New Order'}</div><div className="sub">Create a MONET GARDEN flower order</div></div><Link className="btn" href="/orders">← Back</Link></div>{msg&&<div className="msg">{msg}</div>}<div className="card"><div className="form neatForm orderFlow">
  <Field label="Order Date"><input required type="date" value={f.order_date} onChange={e=>update('order_date',e.target.value)}/></Field>
  <Field label="Collection Date"><input required type="date" value={f.collection_date} onChange={e=>update('collection_date',e.target.value)}/></Field>
  <Field label="Time From"><TimeSelect value={f.time_from} onChange={(v)=>update('time_from',v)} /><div className="sub">Optional · 30-minute intervals</div></Field>
@@ -63,4 +95,3 @@ function TimeSelect({value,onChange}:{value:string,onChange:(value:string)=>void
 }
 
 function Field({label,children,full=false}:{label:string,children:React.ReactNode,full?:boolean}){return <div className={'field '+(full?'full':'')}><label>{label}</label>{children}</div>}
-function Shell({children,active}:{children:React.ReactNode,active:string}){return <div className="wrap"><aside className="side"><Image src="/logo.png" alt="MONET GARDEN" width={145} height={145} className="logo"/><nav className="nav">{[['Dashboard','/'],['Orders','/orders'],['Customers','/customers'],['Florists','/florists'],['Delivery','/delivery'],['Sales Report','/reports'],].map(([n,h])=><Link key={h} className={active===n?'active':''} href={h}>{n}</Link>)}</nav></aside><main className="main">{children}</main></div>}
