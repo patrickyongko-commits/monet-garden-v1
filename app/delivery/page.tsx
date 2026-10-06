@@ -1,4 +1,5 @@
 'use client'
+import Shell from '@/components/Shell'
 
 import Image from 'next/image'
 import Link from 'next/link'
@@ -124,8 +125,7 @@ export default function DeliveryPage(){
     if(error)setMessage(error.message);else{setShowCustomer(false);setCustomerForm({customer_name:'',phone:'',sales_area:'local'});await load();if(data)setField('customer_id',data.id);setMessage('Customer registered.')}
     setSaving(false)
   }
-  async function signout(){await db.auth.signOut()}
-
+ 
   const active=deliveries.filter(x=>x.status!=='cancelled')
   const local=active.filter(x=>x.sales_area==='local')
   const outstation=active.filter(x=>x.sales_area==='outstation')
@@ -184,9 +184,7 @@ export default function DeliveryPage(){
 
   if(!user)return <main style={{minHeight:'100vh',display:'grid',placeItems:'center',padding:20}}><div className="card" style={{width:'min(430px,100%)',textAlign:'center'}}><Image src="/logo.png" alt="MONET GARDEN" width={145} height={145} className="logo"/><h1>MONET GARDEN</h1><Link className="btn primary" href="/">Back to Sign In</Link></div></main>
 
-  return <div className="wrap">
-    <aside className="side"><Image src="/logo.png" alt="MONET GARDEN" width={145} height={145} className="logo"/><nav className="nav"><Link href="/">Dashboard</Link><Link href="/orders">Orders</Link><Link href="/customers">Customers</Link><Link href="/florists">Florists</Link><Link className="active" href="/delivery">Delivery</Link><Link href="/delivery-report">Delivery Report</Link><Link href="/reports">Sales Report</Link></nav><button className="btn" onClick={signout}>Sign out</button></aside>
-    <main className="main deliveryPrintRoot">
+  return <Shell active="Delivery"><div className="main deliveryPrintRoot">
       <header className="top"><div><div className="title">Delivery</div><div className="sub">Local and outstation delivery records</div></div><div style={{display:'flex',gap:8}}><button className="btn" onClick={()=>setShowCustomer(true)}>Customers</button><button className="btn" onClick={()=>setShowDriver(true)}>Drivers Register</button><Link className="btn" href="/delivery/deleted">Deleted History</Link></div></header>
       {message&&<div className="notice">{message}</div>}
       <section className="deliveryTypeGrid section">
@@ -227,6 +225,5 @@ export default function DeliveryPage(){
       {customerView&&<div className="modalBackdrop" onMouseDown={e=>{if(e.currentTarget===e.target)setCustomerView(null)}}><div className="modal card reportModal"><div className="modalHead"><div><h2>{customerView.name}</h2><div className="sub">{customerView.phone||'No phone'} · {customerView.orders} orders · {money(customerView.sales)}</div></div><button onClick={()=>setCustomerView(null)}>✕</button></div><div className="miniActions reportActions"><button className="btn" onClick={()=>printTable(`Customer Sales - ${customerView.name}`,deliveryRows(customerDeliveries),['Date','Customer','Phone','Driver','Area','Items','Boxes','Delivery Fee','Sales Amount','Driver Commission','Status'])}>Print</button><button className="btn" onClick={()=>exportExcel(deliveryRows(customerDeliveries),`customer-${customerView.name.replace(/[^a-z0-9]+/gi,'-')}.xlsx`,'Customer Sales')}>Export Excel</button></div><div className="tableWrap"><table className="table"><thead><tr><th>Date</th><th>Type</th><th>Area</th><th>Items</th><th>Sales</th><th>Commission</th></tr></thead><tbody>{customerDeliveries.map(o=><tr key={o.id}><td>{o.order_date}</td><td>{o.sales_area}</td><td>{o.location}</td><td>{o.items}</td><td>{money(o.sales_amount)}</td><td>{money(o.commission)}</td></tr>)}</tbody></table></div></div></div>}
 
       {driverView&&<div className="modalBackdrop" onMouseDown={e=>{if(e.currentTarget===e.target)setDriverView(null)}}><div className="modal card reportModal"><div className="modalHead"><div><h2>{driverView.name}</h2><div className="sub">Commission: {money(driverView.commission)} · Sales: {money(driverView.sales)}</div></div><button onClick={()=>setDriverView(null)}>✕</button></div><div className="miniActions reportActions"><button className="btn" onClick={()=>printDriverReport(driverView)}>Print</button><button className="btn" onClick={()=>exportExcel(deliveryRows(driverDeliveries),`driver-${driverView.name.replace(/[^a-z0-9]+/gi,'-')}.xlsx`,'Driver Deliveries')}>Export Excel</button></div><div className="tableWrap"><table className="table"><thead><tr><th>Date</th><th>Type</th><th>Customer</th><th>Area</th><th>Boxes</th><th>Sales</th><th>Commission</th></tr></thead><tbody>{driverDeliveries.map(o=><tr key={o.id}><td>{o.order_date}</td><td>{o.sales_area}</td><td>{o.customer?.customer_name}</td><td>{o.location}</td><td>{o.sales_area==='outstation'?o.delivery_quantity:1}</td><td>{money(o.sales_amount)}</td><td>{money(o.commission)}</td></tr>)}</tbody></table></div></div></div>}
-    </main>
-  </div>
+    </div></Shell>
 }
