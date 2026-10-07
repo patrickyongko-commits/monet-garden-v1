@@ -20,3 +20,7 @@ It will:
 6. Orders, Dashboard and Edit Order can then display the saved image.
 
 If storage is not configured, the app now shows the actual upload error instead of silently saving an order with a missing reference image.
+
+
+## Final13 update
+Delivery dashboard now has a top-right Commission Settings button for Local Commission / Trip and Outstation Commission / Box. These defaults apply only to new deliveries; saved historical commissions are unchanged. Run supabase-delivery-final13.sql before using the settings.
