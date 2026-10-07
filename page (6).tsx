@@ -1,97 +1,298 @@
 'use client'
+import Shell from '@/components/Shell'
+
 import Image from 'next/image'
 import Link from 'next/link'
-import {Suspense,useEffect,useRef,useState} from 'react'
-import {useRouter,useSearchParams} from 'next/navigation'
-import {supabase} from '@/lib/supabase'
-import Shell from '@/components/Shell'
-const db=supabase
-const types=['Bouquet','Bridal Bouquet','Corsage','Basket','Stand','Table Arrangement','Vase','Wedding Deco','Centerpiece','Workshop','Others']
-const occasions=['Anniversary','Birthday','Congratulations','Condolences',"Father’s Day",'Get Well Soon','Graduation','House Warming',"Mother’s Day",'Others',"Valentine’s Day",'Wedding']
-const fulfilments=[['self_pick','Self Pick'],['delivery','Delivery'],['walk_in','Walk In']]
-const statuses=[['confirmed','Confirmed'],['delivered_collected','Delivered / Collected'],['cancelled','Cancelled']]
-function today(){return new Date().toISOString().slice(0,10)}
-function Page(){
- const r=useRouter(),params=useSearchParams(),fileRef=useRef<HTMLInputElement|null>(null)
- const duplicateId=params.get('duplicate'),editId=params.get('edit')
- const [florists,setFlorists]=useState<any[]>([]),[saving,setSaving]=useState(false),[msg,setMsg]=useState(''),[photoPreview,setPhotoPreview]=useState<string|null>(null),[photoFile,setPhotoFile]=useState<File|null>(null)
- const [f,setF]=useState<any>({order_date:today(),collection_date:'',time_from:'',time_to:'',florist_name:'',customer_name:'',customer_phone:'',occasion:'',order_type:'Bouquet',other_item_type:'',quantity:1,unit_price:'',amount:'',status:'confirmed',fulfilment:'self_pick',address:'',wishing_card:false,wishing_message:'',reference_image_url:'',remarks:''})
- useEffect(()=>{db.from('florists').select('*').eq('active',true).order('name').then(({data})=>setFlorists(data||[]));if(editId)loadOrder(editId);else if(duplicateId)loadOrder(duplicateId,true)},[editId,duplicateId])
- async function loadOrder(id:string,duplicate=false){const {data,error}=await db.from('orders').select('*').eq('id',id).single();if(error){setMsg(error.message);return};const qty=Number(data.quantity||1),unit=data.unit_price!==null&&data.unit_price!==undefined?data.unit_price:(Number(data.amount||0)/Math.max(qty,1));setF({order_date:duplicate?'':data.order_date||today(),collection_date:duplicate?'':data.collection_date||'',time_from:duplicate?'':data.time_from||'',time_to:duplicate?'':data.time_to||'',florist_name:data.florist_name||'',customer_name:data.customer_name||'',customer_phone:data.customer_phone||'',occasion:data.occasion||'',order_type:data.order_type||'Bouquet',other_item_type:data.other_item_type||'',quantity:qty,unit_price:duplicate?'':unit,amount:duplicate?'':(data.amount??''),status:duplicate?'confirmed':(data.status||'confirmed'),fulfilment:data.fulfilment||'self_pick',address:data.address||'',wishing_card:!!data.wishing_card,wishing_message:data.wishing_message||'',reference_image_url:data.reference_image_url||'',remarks:data.remarks||''});setPhotoPreview(data.reference_image_url||null);if(duplicate)setMsg('Order details copied. Please select the new order and collection schedule.')}
- function update(k:string,v:any){setF((x:any)=>({...x,[k]:v}))}
- async function compressImage(file:File){
-  if(!file.type.startsWith('image/')) return file
-  const originalSize=file.size
-  const maxSize=2000, targetMin=500*1024, targetMax=850*1024
-  const bitmap=await createImageBitmap(file)
-  const scale=Math.min(1,maxSize/Math.max(bitmap.width,bitmap.height))
-  const width=Math.max(1,Math.round(bitmap.width*scale)),height=Math.max(1,Math.round(bitmap.height*scale))
-  const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height
-  const ctx=canvas.getContext('2d');if(!ctx){bitmap.close();return file}
-  ctx.drawImage(bitmap,0,0,width,height);bitmap.close()
-  const encode=async(q:number)=>await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/jpeg',q))
-  let quality=0.85,blob=await encode(quality)
-  if(!blob)return file
-  if(originalSize>targetMin && blob.size<targetMin){
-    blob=await encode(0.95)
-  }
-  if(blob && blob.size>targetMax){
-    let lo=0.55,hi=quality,best:Blob|null=null
-    for(let i=0;i<7;i++){const q=(lo+hi)/2;const b=await encode(q);if(!b)break;if(b.size>targetMax){hi=q}else{best=b;lo=q}}
-    if(best)blob=best
-  }
-  if(!blob)return file
-  // Never inflate a small original just to hit a size target.
-  if(originalSize<targetMin && blob.size>originalSize) return file
-  const base=(file.name.replace(/\.[^.]+$/,'')||'reference-image').replace(/[^a-z0-9_-]+/gi,'_')
-  return new File([blob],`${base}.jpg`,{type:'image/jpeg',lastModified:Date.now()})
-}
- async function preparePhoto(file:File){
-  try{const compressed=await compressImage(file);setPhotoFile(compressed);setPhotoPreview(URL.createObjectURL(compressed));setMsg(`Image prepared: ${(compressed.size/1024).toFixed(0)} KB. It will be uploaded automatically when you save.`)}
-  catch{setPhotoFile(file);setPhotoPreview(URL.createObjectURL(file));setMsg('Image preview ready. Compression will be attempted when saving.')}
- }
- async function choosePhoto(e:React.ChangeEvent<HTMLInputElement>){const file=e.target.files?.[0];if(!file)return;await preparePhoto(file)}
- function pastePhoto(e:React.ClipboardEvent<HTMLDivElement>){const items=Array.from(e.clipboardData.items);const item=items.find(x=>x.type.startsWith('image/'));if(!item)return;const file=item.getAsFile();if(!file)return;e.preventDefault();const ext=(file.type.split('/')[1]||'png').replace('jpeg','jpg');const named=new File([file],`pasted-reference-${Date.now()}.${ext}`,{type:file.type});void preparePhoto(named)}
- async function uploadPhoto(){if(!photoFile)return f.reference_image_url||'';const file=await compressImage(photoFile);setPhotoFile(file);const path=`orders/${crypto.randomUUID()}.jpg`;const {error}=await db.storage.from('order-references').upload(path,file,{contentType:'image/jpeg',upsert:false});if(error)throw new Error(`Reference image upload failed: ${error.message}. Please run the storage setup SQL included with this package.`);const {data}=db.storage.from('order-references').getPublicUrl(path);if(!data?.publicUrl)throw new Error('Reference image URL could not be created.');return data.publicUrl}
- async function save(){setMsg('');const {data:{user}}=await db.auth.getUser();if(!user){setMsg('Please sign in.');return}if(!f.order_date){setMsg('Order Date is required.');return}if(!f.collection_date){setMsg('Collection Date is required.');return}if(!f.florist_name){setMsg('Please select a Florist.');return}if(!f.customer_name.trim()||!f.customer_phone.trim()){setMsg('Customer Name and Phone Number are required.');return}if(!f.order_type){setMsg('Please select an Item Type.');return}if(f.order_type==='Others'&&!f.other_item_type.trim()){setMsg('Please enter the Other Item Type.');return}if(Number(f.quantity)<1){setMsg('Quantity must be at least 1.');return}if(Number(f.unit_price)<0){setMsg('Unit Price cannot be negative.');return}if(f.time_from&&f.time_to&&f.time_from>f.time_to){setMsg('Time From must be before Time To.');return}if(f.fulfilment==='delivery'&&!f.address.trim()){setMsg('Please enter the Delivery Address.');return}setSaving(true);let imageUrl='';try{imageUrl=await uploadPhoto()}catch(e:any){setSaving(false);setMsg(e?.message||'Unable to save the reference image.');return}const qty=Math.max(1,Number(f.quantity||1)),unit=Math.max(0,Number(f.unit_price||0)),total=qty*unit;const payload={order_date:f.order_date,collection_date:f.collection_date,time_from:f.time_from||null,time_to:f.time_to||null,florist_name:f.florist_name,customer_name:f.customer_name.trim(),customer_phone:f.customer_phone.trim(),occasion:f.occasion||null,order_type:f.order_type,other_item_type:f.order_type==='Others'?(f.other_item_type||null):null,quantity:qty,unit_price:unit,amount:total,status:f.status||'confirmed',fulfilment:f.fulfilment,address:f.fulfilment==='delivery'?(f.address||null):null,wishing_card:!!f.wishing_card,wishing_message:f.wishing_card?(f.wishing_message||null):null,reference_image_url:imageUrl||null,remarks:f.remarks||null};const result=editId?await db.from('orders').update(payload).eq('id',editId):await db.from('orders').insert({...payload,created_by:user.id,deleted_at:null});setSaving(false);if(result.error){setMsg(result.error.message);return}r.push('/orders')}
- async function softDelete(){if(!editId){setMsg('Save the order first before deleting it.');return}if(!window.confirm('Move this order to Deleted History?'))return;const {error}=await db.from('orders').update({deleted_at:new Date().toISOString()}).eq('id',editId);if(error)setMsg(error.message);else r.push('/orders/deleted')}
- function duplicate(){if(editId)r.push(`/orders/new?duplicate=${editId}`);else setMsg('Save the order first before duplicating it.')}
- function printTicket(){window.print()}
- return <Shell active="Orders"><div className="top"><div><div className="title">{editId?'Edit Order':'New Order'}</div><div className="sub">Create a MONET GARDEN flower order</div></div><Link className="btn" href="/orders">← Back</Link></div>{msg&&<div className="msg">{msg}</div>}<div className="card"><div className="form neatForm orderFlow">
- <Field label="Order Date"><input required type="date" value={f.order_date} onChange={e=>update('order_date',e.target.value)}/></Field>
- <Field label="Collection Date"><input required type="date" value={f.collection_date} onChange={e=>update('collection_date',e.target.value)}/></Field>
- <Field label="Time From"><TimeSelect value={f.time_from} onChange={(v)=>update('time_from',v)} /><div className="sub">Optional · 30-minute intervals</div></Field>
- <Field label="Time To"><TimeSelect value={f.time_to} onChange={(v)=>update('time_to',v)} /><div className="sub">Optional · 30-minute intervals</div></Field>
- <Field label="Florist"><select value={f.florist_name} onChange={e=>update('florist_name',e.target.value)}><option value="">Select florist</option>{florists.map(x=><option key={x.id}>{x.name}</option>)}</select></Field>
- <Field label="Customer Name"><input required value={f.customer_name} onChange={e=>update('customer_name',e.target.value)} placeholder="Enter customer name"/></Field>
- <Field label="Customer Phone No."><input required value={f.customer_phone} onChange={e=>update('customer_phone',e.target.value)} placeholder="Enter phone number"/></Field>
- <Field label="Occasion"><select value={f.occasion} onChange={e=>update('occasion',e.target.value)}><option value="">Select occasion</option>{occasions.map(x=><option key={x}>{x}</option>)}</select></Field>
- <Field label="Item Type"><select value={f.order_type} onChange={e=>update('order_type',e.target.value)}>{types.map(x=><option key={x}>{x}</option>)}</select></Field>
- {f.order_type==='Others'&&<Field label="Other Item Type"><input value={f.other_item_type} onChange={e=>update('other_item_type',e.target.value)} placeholder="Type item / arrangement type"/></Field>}
- <Field label="Quantity"><input type="number" min="1" step="1" value={f.quantity} onChange={e=>update('quantity',e.target.value)}/></Field>
- <Field label="Unit Price (RM)"><input type="number" min="0" step="0.01" value={f.unit_price} onChange={e=>update('unit_price',e.target.value)} placeholder="0.00"/></Field>
- <Field label="Total Amount (RM)"><input readOnly value={(Math.max(0,Number(f.quantity||0))*Math.max(0,Number(f.unit_price||0))).toFixed(2)}/></Field>
- <Field label="Status"><select className={'statusSelect status-'+f.status} value={f.status} onChange={e=>update('status',e.target.value)}>{statuses.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></Field>
- <Field label="Fulfilment"><select value={f.fulfilment} onChange={e=>update('fulfilment',e.target.value)}>{fulfilments.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></Field>
- {f.fulfilment==='delivery'&&<Field label="Delivery Address" full><textarea value={f.address} onChange={e=>update('address',e.target.value)} placeholder="Enter delivery address"/></Field>}
- <Field label="Wishing Card"><select value={String(f.wishing_card)} onChange={e=>update('wishing_card',e.target.value==='true')}><option value="false">No</option><option value="true">Yes</option></select></Field>
- {f.wishing_card&&<Field label="Wishing Card Message" full><textarea value={f.wishing_message} onChange={e=>update('wishing_message',e.target.value)}/></Field>}
- <div className="field full"><label>Reference Image</label><div className="referenceBox" tabIndex={0} onPaste={pastePhoto}>{photoPreview?<div className="referenceContent"><img src={photoPreview} alt="Reference"/><div className="referenceActions"><button type="button" onClick={()=>fileRef.current?.click()}>Change Image</button><button type="button" className="danger" onClick={()=>{setPhotoFile(null);setPhotoPreview(null);update('reference_image_url','')}}>Remove</button></div></div>:<button type="button" className="btn" onClick={()=>fileRef.current?.click()}>＋ Add / Upload Reference Image</button>}<input ref={fileRef} type="file" accept="image/*" onChange={choosePhoto} style={{display:'none'}}/><div className="sub">Upload an image or press <b>Ctrl + V</b> here to paste a screenshot/reference image.</div></div></div>
- <Field label="Remarks" full><textarea value={f.remarks} onChange={e=>update('remarks',e.target.value)} placeholder="Add special instructions, notes or remarks for this order"/></Field>
- <div className="full orderActions"><div className="actionLeft">{editId&&<button type="button" className="danger" onClick={softDelete}>Delete</button>}{editId&&<button type="button" onClick={duplicate}>Duplicate</button>}<button type="button" onClick={printTicket}>Print Ticket</button></div><div className="actionRight"><Link className="btn" href="/orders">Cancel</Link><button type="button" className="primary" onClick={save} disabled={saving}>{saving?'Saving…':'Save Order'}</button></div></div>
- </div></div><div className="printTicket"><div className="ticketBrand">MONET GARDEN SDN BHD</div><div className="ticketTitle">ORDER TICKET</div><div className="ticketGrid"><div><span>Collection Date</span><b>{f.collection_date||'-'}</b></div><div><span>Collection Time</span><b>{f.time_from&&f.time_to?f.time_from+' - '+f.time_to:(f.time_from||f.time_to||'Flexible')}</b></div><div><span>Florist</span><b>{f.florist_name||'-'}</b></div><div><span>Customer</span><b>{f.customer_name||'-'}</b></div><div><span>Phone</span><b>{f.customer_phone||'-'}</b></div><div><span>Occasion</span><b>{f.occasion||'-'}</b></div><div><span>Item</span><b>{f.order_type==='Others'&&f.other_item_type?f.other_item_type:f.order_type}</b></div><div><span>Quantity</span><b>{f.quantity||1}</b></div><div><span>Unit Price</span><b>RM {Number(f.unit_price||0).toFixed(2)}</b></div><div><span>Total</span><b>RM {(Math.max(0,Number(f.quantity||0))*Math.max(0,Number(f.unit_price||0))).toFixed(2)}</b></div><div><span>Status</span><b>{statuses.find(x=>x[0]===f.status)?.[1]||f.status}</b></div></div>{f.fulfilment==='delivery'&&<div className="ticketBlock"><span>Delivery Address</span><b>{f.address||'-'}</b></div>}<div className="ticketBlock"><span>Wishing Card</span><b>{f.wishing_card?'Yes':'No'}{f.wishing_card&&f.wishing_message?` — ${f.wishing_message}`:''}</b></div><div className="ticketBlock"><span>Remarks</span><b>{f.remarks||'-'}</b></div></div></Shell>
-}
-export default function NewOrder(){return <Suspense fallback={<div className="main"><div className="card">Loading…</div></div>}><Page/></Suspense>}
+import { useEffect, useMemo, useState } from 'react'
+import * as XLSX from 'xlsx'
+import { supabase } from '@/lib/supabase'
 
-function TimeSelect({value,onChange}:{value:string,onChange:(value:string)=>void}){
- const options:string[]=[]
- for(let h=6;h<=21;h++) for(const m of [0,30]){
-  if(h===21&&m===30) continue
-  options.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`)
- }
- return <div className="timeButtonGrid">
-  {options.map(t=>{const [h,m]=t.split(':').map(Number);const label=`${h%12||12}:${String(m).padStart(2,'0')} ${h<12?'AM':'PM'}`;return <button type="button" key={t} className={'timeButton '+(value===t?'selected':'')} onClick={()=>onChange(t)}>{label}</button>})}
- </div>
+const db = supabase
+
+const LOCAL_LOCATIONS = ['3rd Miles','7th Miles','Ban Hock','Batu Kawa','Batu Lintang','BDC','Bintawa','Desa Wira Stephen Yong','Green Road','Hui Sing Garden','Jalan Song','Kenyalang','Kuching Waterfront','Matang','Pandungan','Pending','Petra Jaya','Samarahan','Saradise','Sekama','Stampin','Stapok','Stutong','Tabuan Jaya']
+const OUTSTATION_AREAS = ['Serian','Sri Aman','Sibu','Bintulu','Sarikei','Mukah','Miri']
+const ITEM_OPTIONS = ['Bouquet','Stands','Wholesale Bundles','Baskets','Table Arrangements']
+
+type Customer = { id:string; customer_name:string; phone?:string|null; address?:string|null; city?:string|null; sales_area:'local'|'outstation'; is_active:boolean }
+type Driver = { id:string; driver_name:string; phone?:string|null; default_commission_rate?:number|null; is_active:boolean }
+type Delivery = { id:string; order_date:string; customer_id:string; driver_id?:string|null; location:string; sales_area:'local'|'outstation'; delivery_type:'local'|'outstation'; delivery_quantity:number; delivery_fee:number; items?:string|null; sales_amount:number; commission:number; status:'delivered'|'cancelled'; deleted_at?:string|null; customer?:Customer; driver?:Driver }
+
+type CustomerStat = { id:string; name:string; phone:string; orders:number; sales:number }
+type DriverStat = { id:string; name:string; phone:string; localOrders:number; outstationOrders:number; boxes:number; sales:number; commission:number }
+type AreaStat = { area:string; orders:number; boxes:number; sales:number }
+
+const money=(n:number)=>`RM ${Number(n||0).toFixed(2)}`
+const today=()=>new Date().toISOString().slice(0,10)
+const clean=(v:string)=>v.trim()
+
+function exportExcel(rows:any[], filename:string, sheet='Delivery'){
+  const wb=XLSX.utils.book_new()
+  const ws=XLSX.utils.json_to_sheet(rows)
+  XLSX.utils.book_append_sheet(wb,ws,sheet)
+  XLSX.writeFile(wb,filename)
 }
 
-function Field({label,children,full=false}:{label:string,children:React.ReactNode,full?:boolean}){return <div className={'field '+(full?'full':'')}><label>{label}</label>{children}</div>}
+export default function DeliveryPage(){
+  const [user,setUser]=useState<any>(null)
+  const [customers,setCustomers]=useState<Customer[]>([])
+  const [drivers,setDrivers]=useState<Driver[]>([])
+  const [deliveries,setDeliveries]=useState<Delivery[]>([])
+  const [loading,setLoading]=useState(true)
+  const [saving,setSaving]=useState(false)
+  const [message,setMessage]=useState('')
+  const [showDelivery,setShowDelivery]=useState(false)
+  const [deliveryType,setDeliveryType]=useState<'local'|'outstation'>('local')
+  const [showDriver,setShowDriver]=useState(false)
+  const [showCustomer,setShowCustomer]=useState(false)
+  const [customerView,setCustomerView]=useState<CustomerStat|null>(null)
+  const [driverView,setDriverView]=useState<DriverStat|null>(null)
+  const [editingId,setEditingId]=useState<string|null>(null)
+  const [viewType,setViewType]=useState<'local'|'outstation'|null>(null)
+  const [form,setForm]=useState({order_date:today(),customer_id:'',driver_id:'',location:'',other_location:'',sales_area:'local' as 'local'|'outstation',delivery_type:'local' as 'local'|'outstation',delivery_quantity:'1',items:'Bouquet',other_items:'',sales_amount:'0',commission:'15',status:'delivered' as 'delivered'|'cancelled'})
+  const [driverForm,setDriverForm]=useState({driver_name:'',phone:''})
+  const [localFee,setLocalFee]=useState(15)
+  const [outstationFee,setOutstationFee]=useState(15)
+  const [localCommissionDefault,setLocalCommissionDefault]=useState(15)
+  const [outstationCommissionPerBox,setOutstationCommissionPerBox]=useState(15)
+  const [showCommissionSettings,setShowCommissionSettings]=useState(false)
+  const [driverEditingId,setDriverEditingId]=useState<string|null>(null)
+  const [customerForm,setCustomerForm]=useState({customer_name:'',phone:'',sales_area:'local' as 'local'|'outstation'})
+
+  useEffect(()=>{
+    db.auth.getUser().then(({data})=>{setUser(data.user);if(data.user)load()})
+    const {data}=db.auth.onAuthStateChange((_e,s)=>{setUser(s?.user??null);if(s)load()})
+    return()=>data.subscription.unsubscribe()
+  },[])
+
+  async function load(){
+    setLoading(true)
+    const [{data:c},{data:d},{data:o},{data:settings}] = await Promise.all([
+      db.from('wholesale_customers').select('*').eq('is_active',true).order('customer_name'),
+      db.from('drivers').select('*').eq('is_active',true).order('driver_name'),
+      db.from('wholesale_orders').select('*, customer:wholesale_customers(*), driver:drivers(*)').is('deleted_at',null).order('order_date',{ascending:false}).order('created_at',{ascending:false}),
+      db.from('delivery_settings').select('*').eq('id',1).maybeSingle()
+    ])
+    setCustomers((c||[]) as Customer[])
+    setDrivers((d||[]) as Driver[])
+    setDeliveries((o||[]) as Delivery[])
+    if(settings){setLocalFee(Number(settings.local_fee_per_address)||15);setOutstationFee(Number(settings.outstation_fee_per_box)||15);setLocalCommissionDefault(Number(settings.local_commission_per_trip ?? 15)||0);setOutstationCommissionPerBox(Number(settings.outstation_commission_per_box ?? 15)||0)}
+    setLoading(false)
+  }
+
+  function setField(k:string,v:any){setForm(f=>({...f,[k]:v}))}
+  function resetForm(type:'local'|'outstation'){
+    setEditingId(null); setDeliveryType(type)
+    setForm({order_date:today(),customer_id:'',driver_id:'',location:'',other_location:'',sales_area:type,delivery_type:type,delivery_quantity:'1',items:'Bouquet',other_items:'',sales_amount:'0',commission:type==='outstation'?String(outstationCommissionPerBox):String(localCommissionDefault),status:'delivered'})
+    setMessage(''); setShowDelivery(true)
+  }
+  function applyCustomer(id:string){
+    setField('customer_id',id)
+  }
+  function selectType(type:'local'|'outstation'){
+    setDeliveryType(type); setField('delivery_type',type); setField('sales_area',type); setField('delivery_quantity','1'); setField('commission',deliveryType==='outstation'?String(Math.max(1,Number(form.delivery_quantity)||1)*outstationCommissionPerBox):String(localCommissionDefault))
+  }
+  function openEdit(o:Delivery){
+    const type=o.delivery_type||o.sales_area; const isOther=type==='local'?!LOCAL_LOCATIONS.includes(o.location):!OUTSTATION_AREAS.includes(o.location)
+    const itemBase=(o.items||'').split(' — ')[0]; const isOtherItem=!ITEM_OPTIONS.includes(itemBase)
+    setEditingId(o.id); setDeliveryType(type)
+    setForm({order_date:o.order_date,customer_id:o.customer_id,driver_id:o.driver_id||'',location:isOther?'Others':o.location||'',other_location:isOther?o.location:'',sales_area:type,delivery_type:type,delivery_quantity:String(o.delivery_quantity||1),items:isOtherItem?'Others':itemBase||'Bouquet',other_items:isOtherItem?(o.items||''):'',sales_amount:String(o.sales_amount||0),commission:String(o.commission ?? (type==='outstation'?Number(o.delivery_quantity||1)*outstationCommissionPerBox:localCommissionDefault)),status:o.status==='cancelled'?'cancelled':'delivered'})
+    setMessage(''); setShowDelivery(true)
+  }
+  function finalLocation(){return form.location==='Others'?clean(form.other_location):form.location}
+  function finalItems(){return form.items==='Others'?clean(form.other_items):form.items}
+  function barPercent(value:number, rows:AreaStat[]){const max=Math.max(...rows.map(x=>x.sales),1); return Math.max(4,(value/max)*100)}
+
+  async function deleteDelivery(){
+    if(!editingId)return
+    if(!window.confirm('Move this delivery to Deleted History?'))return
+    setSaving(true); setMessage('')
+    const {error}=await db.from('wholesale_orders').update({deleted_at:new Date().toISOString()}).eq('id',editingId)
+    if(error)setMessage(error.message);else{setShowDelivery(false);setEditingId(null);await load();setMessage('Delivery moved to Deleted History.')}
+    setSaving(false)
+  }
+
+  async function saveDeliverySettings(){
+    setSaving(true);setMessage('')
+    const {error}=await db.from('delivery_settings').upsert({id:1,local_fee_per_address:Number(localFee)||0,outstation_fee_per_box:Number(outstationFee)||0,updated_at:new Date().toISOString()})
+    if(error)setMessage(error.message);else setMessage('Delivery fees updated. Existing delivery records keep their original fees.')
+    setSaving(false)
+  }
+
+  async function saveCommissionSettings(){
+    setSaving(true);setMessage('')
+    const {error}=await db.from('delivery_settings').upsert({id:1,local_commission_per_trip:Number(localCommissionDefault)||0,outstation_commission_per_box:Number(outstationCommissionPerBox)||0,updated_at:new Date().toISOString()})
+    if(error)setMessage(error.message);else {setShowCommissionSettings(false);setMessage('Commission defaults updated. Existing delivery commissions are unchanged.')}
+    setSaving(false)
+  }
+
+  async function saveDelivery(e:any){
+    e.preventDefault(); setSaving(true); setMessage('')
+    const quantity=deliveryType==='outstation'?Math.max(1,Number(form.delivery_quantity)||1):1
+    const existing=editingId?deliveries.find(x=>x.id===editingId):null
+    const deliveryFee=editingId&&existing?Number(existing.delivery_fee||0):(deliveryType==='outstation'?quantity*outstationFee:localFee)
+    const payload={order_date:form.order_date,customer_id:form.customer_id,driver_id:form.driver_id||null,location:finalLocation(),sales_area:deliveryType,delivery_type:deliveryType,delivery_quantity:quantity,delivery_fee:deliveryFee,items:finalItems(),sales_amount:Number(form.sales_amount)||0,commission:Number(form.commission)||0,status:form.status}
+    const res=editingId?await db.from('wholesale_orders').update(payload).eq('id',editingId):await db.from('wholesale_orders').insert(payload)
+    if(res.error) setMessage(res.error.message)
+    else {setShowDelivery(false);await load();setMessage(editingId?'Delivery updated.':'Delivery saved.')}
+    setSaving(false)
+  }
+
+  function openNewDriver(){
+    setDriverEditingId(null)
+    setDriverForm({driver_name:'',phone:''})
+    setMessage('')
+    setShowDriver(true)
+  }
+  function openEditDriver(d:Driver){
+    setDriverEditingId(d.id)
+    setDriverForm({driver_name:d.driver_name,phone:d.phone||''})
+    setMessage('')
+    setShowDriver(true)
+  }
+  async function saveDriver(e:any){
+    e.preventDefault(); setSaving(true); setMessage('')
+    const payload={driver_name:clean(driverForm.driver_name),phone:clean(driverForm.phone)||null}
+    const res=driverEditingId
+      ?await db.from('drivers').update(payload).eq('id',driverEditingId)
+      :await db.from('drivers').insert({...payload,default_commission_rate:0})
+    if(res.error)setMessage(res.error.message)
+    else{setShowDriver(false);setDriverEditingId(null);setDriverForm({driver_name:'',phone:''});await load();setMessage(driverEditingId?'Driver updated.':'Driver registered.')}
+    setSaving(false)
+  }
+  async function deleteDriver(id:string,name:string){
+    if(!window.confirm(`Delete driver "${name}"? The driver will be removed from the active driver list, while existing delivery records are kept.`))return
+    setSaving(true);setMessage('')
+    const {error}=await db.from('drivers').update({is_active:false}).eq('id',id)
+    if(error)setMessage(error.message)
+    else{if(driverEditingId===id){setDriverEditingId(null);setDriverForm({driver_name:'',phone:''});setShowDriver(false)}await load();setMessage('Driver deleted from the active list. Historical deliveries are kept.')}
+    setSaving(false)
+  }
+  async function saveCustomer(e:any){
+    e.preventDefault(); setSaving(true); setMessage('')
+    const {data,error}=await db.from('wholesale_customers').insert({customer_name:clean(customerForm.customer_name),phone:clean(customerForm.phone)||null,sales_area:customerForm.sales_area}).select('*').single()
+    if(error)setMessage(error.message);else{setShowCustomer(false);setCustomerForm({customer_name:'',phone:'',sales_area:'local'});await load();if(data)setField('customer_id',data.id);setMessage('Customer registered.')}
+    setSaving(false)
+  }
+ 
+  const active=deliveries.filter(x=>x.status!=='cancelled')
+  const local=active.filter(x=>x.sales_area==='local')
+  const outstation=active.filter(x=>x.sales_area==='outstation')
+  const localCommission=local.reduce((s,x)=>s+Number(x.commission||0),0)
+  const outCommission=outstation.reduce((s,x)=>s+Number(x.commission||0),0)
+  const localSales=local.reduce((s,x)=>s+Number(x.sales_amount||0),0)
+  const outSales=outstation.reduce((s,x)=>s+Number(x.sales_amount||0),0)
+  const totalBoxes=outstation.reduce((s,x)=>s+Number(x.delivery_quantity||0),0)
+
+  const localAreaStats=useMemo<AreaStat[]>(()=>{
+    const map:Record<string,AreaStat>={};
+    local.forEach(o=>{const area=o.location||'Others';if(!map[area])map[area]={area,orders:0,boxes:0,sales:0};map[area].orders++;map[area].sales+=Number(o.sales_amount||0)});
+    return Object.values(map).sort((a,b)=>b.sales-a.sales || a.area.localeCompare(b.area))
+  },[deliveries])
+
+  const outstationAreaStats=useMemo<AreaStat[]>(()=>{
+    const map:Record<string,AreaStat>={};
+    outstation.forEach(o=>{const area=o.location||'Others';if(!map[area])map[area]={area,orders:0,boxes:0,sales:0};map[area].orders++;map[area].boxes+=Number(o.delivery_quantity||0);map[area].sales+=Number(o.sales_amount||0)});
+    return Object.values(map).sort((a,b)=>b.sales-a.sales || a.area.localeCompare(b.area))
+  },[deliveries])
+
+  const customerStats=useMemo<CustomerStat[]>(()=>{
+    const map:Record<string,CustomerStat>={}
+    customers.forEach(c=>{map[c.id]={id:c.id,name:c.customer_name,phone:c.phone||'',orders:0,sales:0}})
+    active.forEach(o=>{const id=o.customer_id;if(!map[id])map[id]={id,name:o.customer?.customer_name||'Unknown',phone:o.customer?.phone||'',orders:0,sales:0};map[id].orders++;map[id].sales+=Number(o.sales_amount||0)})
+    return Object.values(map).sort((a,b)=>b.sales-a.sales || a.name.localeCompare(b.name))
+  },[deliveries,customers])
+
+  const driverStats=useMemo<DriverStat[]>(()=>{
+    const map:Record<string,DriverStat>={}
+    drivers.forEach(d=>{map[d.id]={id:d.id,name:d.driver_name,phone:d.phone||'',localOrders:0,outstationOrders:0,boxes:0,sales:0,commission:0}})
+    active.forEach(o=>{if(!o.driver_id)return;const d=o.driver;const id=o.driver_id;if(!map[id])map[id]={id,name:d?.driver_name||'Unknown',phone:d?.phone||'',localOrders:0,outstationOrders:0,boxes:0,sales:0,commission:0};if(o.sales_area==='local')map[id].localOrders++;else{map[id].outstationOrders++;map[id].boxes+=Number(o.delivery_quantity||0)}map[id].sales+=Number(o.sales_amount||0);map[id].commission+=Number(o.commission||0)})
+    return Object.values(map).sort((a,b)=>b.commission-a.commission || a.name.localeCompare(b.name))
+  },[deliveries,drivers])
+
+  const outstationMonths=useMemo(()=>Array.from(new Set(outstation.map(o=>(o.order_date||'').slice(0,7)).filter(Boolean))).sort().reverse(),[outstation])
+  const [top3Month,setTop3Month]=useState('')
+  useEffect(()=>{if(outstationMonths.length&&!outstationMonths.includes(top3Month))setTop3Month(outstationMonths[0]||'')},[outstationMonths,top3Month])
+  const top3OutstationCustomers=useMemo(()=>{const map:Record<string,{id:string;name:string;orders:number;boxes:number;sales:number}>={};outstation.filter(o=>(o.order_date||'').slice(0,7)===top3Month).forEach(o=>{const id=o.customer_id;if(!map[id])map[id]={id,name:o.customer?.customer_name||'Unknown',orders:0,boxes:0,sales:0};map[id].orders++;map[id].boxes+=Number(o.delivery_quantity||0);map[id].sales+=Number(o.sales_amount||0)});return Object.values(map).sort((a,b)=>b.sales-a.sales||b.orders-a.orders).slice(0,3)},[outstation,top3Month])
+
+  const customerDeliveries=customerView?active.filter(o=>o.customer_id===customerView.id):[]
+  const driverDeliveries=driverView?active.filter(o=>o.driver_id===driverView.id):[]
+
+  function deliveryRows(rows:Delivery[]){return rows.map(o=>({
+    Date:o.order_date,Customer:o.customer?.customer_name||'',Phone:o.customer?.phone||'',Driver:o.driver?.driver_name||'',Area:o.location,Items:o.items||'',Boxes:o.sales_area==='outstation'?o.delivery_quantity:1,'Delivery Fee':Number(o.delivery_fee||0),'Sales Amount':Number(o.sales_amount||0),'Driver Commission':Number(o.commission||0),Status:o.status
+  }))}
+  function exportLocal(){exportExcel(deliveryRows(local),'monet-garden-local-delivery.xlsx','Local Delivery')}
+  function exportOutstation(){exportExcel(deliveryRows(outstation),'monet-garden-outstation-delivery.xlsx','Outstation Delivery')}
+  function exportDrivers(){exportExcel(driverStats.map(x=>({Driver:x.name,Phone:x.phone,'Local Orders':x.localOrders,'Outstation Orders':x.outstationOrders,'Total Boxes':x.boxes,'Sales':x.sales,'Commission':x.commission})),'monet-garden-driver-commission.xlsx','Driver Commission')}
+  function esc(v:any){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+  function printTable(title:string, rows:any[], columns:string[]){
+    const w=window.open('','_blank','width=1100,height=760'); if(!w)return
+    const head=columns.map(c=>`<th>${esc(c)}</th>`).join('')
+    const body=rows.map(r=>`<tr>${columns.map(c=>`<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')
+    w.document.write(`<!doctype html><html><head><title>MONET GARDEN - ${esc(title)}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#222}h1{font-size:20px;margin:0 0 4px}p{color:#666;font-size:12px;margin:0 0 18px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #ccc;padding:7px 8px;text-align:left}th{background:#f5f5f5}</style></head><body><h1>MONET GARDEN — ${esc(title)}</h1><p>Printed ${new Date().toLocaleString()}</p><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></body></html>`)
+    w.document.close(); w.focus(); setTimeout(()=>{w.print();w.close()},250)
+  }
+  function printDeliveryReport(title:string, rows:Delivery[]){printTable(title,deliveryRows(rows),['Date','Customer','Phone','Driver','Area','Items','Boxes','Delivery Fee','Sales Amount','Driver Commission','Status'])}
+  function printDriverReport(d:DriverStat){printTable(`Driver Commission - ${d.name}`,deliveryRows(driverDeliveriesFor(d.id)),['Date','Customer','Phone','Driver','Area','Items','Boxes','Delivery Fee','Sales Amount','Driver Commission','Status'])}
+  function driverDeliveriesFor(id:string){return active.filter(o=>o.driver_id===id)}
+
+  if(!user)return <main style={{minHeight:'100vh',display:'grid',placeItems:'center',padding:20}}><div className="card" style={{width:'min(430px,100%)',textAlign:'center'}}><Image src="/logo.png" alt="MONET GARDEN" width={145} height={145} className="logo"/><h1>MONET GARDEN</h1><Link className="btn primary" href="/">Back to Sign In</Link></div></main>
+
+  return <Shell active="Delivery"><div className="main deliveryPrintRoot">
+      <header className="top"><div><div className="title">Delivery</div><div className="sub">Local and outstation delivery records</div></div><div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}><button className="btn" onClick={()=>setShowCommissionSettings(true)}>Commission Settings</button><button className="btn" onClick={()=>setShowCustomer(true)}>Customers</button><button className="btn" onClick={openNewDriver}>Drivers Register</button><Link className="btn" href="/delivery/deleted">Deleted History</Link></div></header>
+      {message&&<div className="notice">{message}</div>}
+      <section className="deliveryTypeGrid section">
+        <div className="card deliveryHero" onClick={()=>setViewType('local')} role="button" tabIndex={0}><div><div className="eyebrow">LOCAL DELIVERY</div><h2>{local.length} <span>Total delivery orders</span></h2><div className="sub">Driver commission: <b>{money(localCommission)}</b></div></div><div className="buttonStack"><button className="primary" onClick={(e)=>{e.stopPropagation();resetForm('local')}}>+ New Delivery</button><div className="miniActions"><button className="btn" onClick={(e)=>{e.stopPropagation();printDeliveryReport('Local Delivery',local)}}>Print</button><button className="btn" onClick={(e)=>{e.stopPropagation();exportLocal()}}>Export Excel</button></div></div></div>
+        <div className="card deliveryHero" onClick={()=>setViewType('outstation')} role="button" tabIndex={0}><div><div className="eyebrow">OUTSTATION DELIVERY</div><h2>{totalBoxes} <span>Total boxes orders</span></h2><div className="sub">Driver commission: <b>{money(outCommission)}</b></div></div><div className="buttonStack"><button className="primary" onClick={(e)=>{e.stopPropagation();resetForm('outstation')}}>+ New Delivery</button><div className="miniActions"><button className="btn" onClick={(e)=>{e.stopPropagation();printDeliveryReport('Outstation Delivery',outstation)}}>Print</button><button className="btn" onClick={(e)=>{e.stopPropagation();exportOutstation()}}>Export Excel</button></div></div></div>
+      </section>
+
+      <section className="section card top3DashboardCard"><div className="sectionHead"><div><h2>Top 3 Outstation Sales Customers</h2><div className="sub">Monthly ranking by outstation sales amount.</div></div><select className="monthSelect" value={top3Month} onChange={e=>setTop3Month(e.target.value)} disabled={!outstationMonths.length}>{outstationMonths.length?outstationMonths.map(m=><option key={m} value={m}>{new Date(Number(m.slice(0,4)),Number(m.slice(5,7))-1,1).toLocaleDateString('en-MY',{month:'long',year:'numeric'})}</option>):<option value="">No months</option>}</select></div><div className="top3CustomerGrid">{top3OutstationCustomers.map((c,i)=><div className="top3CustomerCard" key={c.id}><div className="top3Rank">#{i+1}</div><div><strong>{c.name}</strong><div className="sub">{c.orders} orders · {c.boxes} boxes</div></div><b>{money(c.sales)}</b></div>)}{!top3OutstationCustomers.length&&<div className="emptyState">No outstation sales for this month.</div>}</div></section>
+
+      <section className="section analyticsGrid">
+        <div className="card analyticsCard"><div className="sectionHead"><div><h2>Local Sales by Area</h2><div className="sub">Sales performance by local delivery area.</div></div><Link className="btn" href="/delivery-report">Report</Link></div><div className="analyticsSummary"><div><span className="groupLabel">Total Sales</span><strong>{money(localSales)}</strong></div><div><span className="groupLabel">Delivery Orders</span><strong>{local.length}</strong></div><div><span className="groupLabel">Delivery Fees</span><strong>{money(local.reduce((s,x)=>s+Number(x.delivery_fee||0),0))}</strong></div></div><div className="analyticsBars">{localAreaStats.map(a=><div className="analyticsRow" key={a.area}><div className="analyticsLabel"><span>{a.area}</span><b>{money(a.sales)}</b></div><div className="analyticsTrack"><span style={{width:`${barPercent(a.sales,localAreaStats)}%`}} /></div></div>)}{!localAreaStats.length&&<div className="emptyState">No local sales yet.</div>}</div></div>
+        <div className="card analyticsCard"><div className="sectionHead"><div><h2>Outstation Sales by Area</h2><div className="sub">Sales performance by outstation area.</div></div><Link className="btn" href="/delivery-report">Report</Link></div><div className="analyticsSummary"><div><span className="groupLabel">Total Sales</span><strong>{money(outSales)}</strong></div><div><span className="groupLabel">Total Boxes</span><strong>{totalBoxes}</strong></div><div><span className="groupLabel">Delivery Fees</span><strong>{money(outstation.reduce((s,x)=>s+Number(x.delivery_fee||0),0))}</strong></div></div><div className="analyticsBars">{outstationAreaStats.map(a=><div className="analyticsRow" key={a.area}><div className="analyticsLabel"><span>{a.area} · {a.boxes} boxes</span><b>{money(a.sales)}</b></div><div className="analyticsTrack"><span style={{width:`${barPercent(a.sales,outstationAreaStats)}%`}} /></div></div>)}{!outstationAreaStats.length&&<div className="emptyState">No outstation sales yet.</div>}</div></div>
+      </section>
+
+      {viewType&&<section className="section card"><div className="sectionHead"><div><h2>{viewType==='local'?'Local Delivery':'Outstation Delivery'} — All Details</h2><div className="sub">{viewType==='local'?local.length:outstation.length} active records</div></div><div className="miniActions"><button className="btn" onClick={()=>setViewType(null)}>← Back</button><button className="btn" onClick={()=>printDeliveryReport(viewType==='local'?'Local Delivery':'Outstation Delivery',viewType==='local'?local:outstation)}>Print</button><button className="btn" onClick={viewType==='local'?exportLocal:exportOutstation}>Export Excel</button><button className="primary" onClick={()=>resetForm(viewType)}>+ New Delivery</button></div></div><div className="tableWrap"><table className="table"><thead><tr><th>Date</th><th>Customer</th><th>Phone</th><th>Driver</th><th>{viewType==='local'?'Location':'Area'}</th><th>Items</th><th>{viewType==='outstation'?'Boxes':'Amount'}</th><th>Delivery Fee</th><th>Sales</th><th>Commission</th><th>Status</th><th>Actions</th></tr></thead><tbody>{(viewType==='local'?local:outstation).map(o=><tr key={o.id}><td>{o.order_date}</td><td>{o.customer?.customer_name||'—'}</td><td>{o.customer?.phone||'—'}</td><td>{o.driver?.driver_name||'—'}</td><td>{o.location}</td><td>{o.items||'—'}</td><td>{viewType==='outstation'?o.delivery_quantity:money(o.sales_amount)}</td><td>{money(o.delivery_fee)}</td><td>{money(o.sales_amount)}</td><td>{money(o.commission)}</td><td>{o.status}</td><td><button className="btn" onClick={()=>openEdit(o)}>Edit</button></td></tr>)}{!(viewType==='local'?local:outstation).length&&<tr><td colSpan={12}><div className="emptyState">No records yet.</div></td></tr>}</tbody></table></div></section>}
+
+      <section className="section card">
+        <div className="sectionHead"><div><h2>Active Drivers</h2><div className="sub">Drivers available for new deliveries. Edit or remove a driver without deleting historical delivery records.</div></div><button className="primary" onClick={openNewDriver}>+ Register Driver</button></div>
+        <div className="tableWrap"><table className="table"><thead><tr><th>Driver</th><th>Phone</th><th>Local Delivery Orders</th><th>Outstation Boxes</th><th>Commission</th><th>Actions</th></tr></thead><tbody>{drivers.map(d=>{const st=driverStats.find(x=>x.id===d.id);return <tr key={d.id}><td><strong>{d.driver_name}</strong></td><td>{d.phone||'—'}</td><td>{st?.localOrders||0}</td><td>{st?.boxes||0}</td><td>{money(st?.commission||0)}</td><td><div className="miniActions"><button type="button" className="btn" onClick={()=>openEditDriver(d)}>Edit</button><button type="button" className="danger" onClick={()=>deleteDriver(d.id,d.driver_name)} disabled={saving}>Delete</button></div></td></tr>})}{!drivers.length&&<tr><td colSpan={6}><div className="emptyState">No active drivers. Click “Register Driver” to add one.</div></td></tr>}</tbody></table></div>
+      </section>
+
+      <section className="section card">
+        <div className="sectionHead"><div><h2>Delivery Fee Settings</h2><div className="sub">New deliveries use these rates. Existing delivery records keep their saved fee.</div></div><button className="primary" onClick={saveDeliverySettings} disabled={saving}>Save Fee Settings</button></div>
+        <div className="form"><div className="field"><label>Local Fee / Address (RM)</label><input type="number" min="0" step="0.01" value={localFee} onChange={e=>setLocalFee(Number(e.target.value))}/></div><div className="field"><label>Outstation Fee / Box (RM)</label><input type="number" min="0" step="0.01" value={outstationFee} onChange={e=>setOutstationFee(Number(e.target.value))}/></div></div>
+      </section>
+
+
+
+      <section className="section splitCards">
+        <section className="section card"><div className="sectionHead"><div><h2>Customer Sales</h2><div className="sub">Click a customer to view sales history.</div></div><button className="btn" onClick={()=>setShowCustomer(true)}>+ New Customer</button></div><div className="tableWrap"><table className="table"><thead><tr><th>Customer</th><th>Phone</th><th>Orders</th><th>Total Sales</th><th></th></tr></thead><tbody>{customerStats.map(c=><tr key={c.id}><td><strong>{c.name}</strong></td><td>{c.phone||'—'}</td><td>{c.orders}</td><td><strong>{money(c.sales)}</strong></td><td><button className="btn" onClick={()=>setCustomerView(c)}>View Sales</button></td></tr>)}{!customerStats.length&&<tr><td colSpan={5}><div className="emptyState">No delivery sales yet.</div></td></tr>}</tbody></table></div></section>
+        <section className="section card"><div className="sectionHead"><div><h2>Driver Commission</h2><div className="sub">Local delivery orders, outstation boxes and total commission.</div></div><div className="miniActions"><button className="btn" onClick={()=>printTable('Driver Commission',driverStats.map(x=>({Driver:x.name,'Total Local Delivery Orders':x.localOrders,'Total Outstation Boxes':x.boxes,Commission:money(x.commission)})),['Driver','Total Local Delivery Orders','Total Outstation Boxes','Commission'])}>Print</button><button className="btn" onClick={()=>exportExcel(driverStats.map(x=>({Driver:x.name,'Total Local Delivery Orders':x.localOrders,'Total Outstation Boxes':x.boxes,Commission:x.commission})),'monet-garden-driver-commission.xlsx','Driver Commission')}>Export Excel</button><button className="primary" onClick={openNewDriver}>+ Register Driver</button></div></div><div className="tableWrap"><table className="table"><thead><tr><th>Driver</th><th>Total Local Delivery Orders</th><th>Total Outstation Boxes</th><th>Commission</th><th></th></tr></thead><tbody>{driverStats.map(d=><tr key={d.id}><td><strong>{d.name}</strong></td><td>{d.localOrders}</td><td>{d.boxes}</td><td><strong>{money(d.commission)}</strong></td><td><button className="btn" onClick={()=>setDriverView(d)}>View Details</button></td></tr>)}{!driverStats.length&&<tr><td colSpan={5}><div className="emptyState">No driver commission records yet.</div></td></tr>}</tbody></table></div></section>
+      </section>
+
+      <section className="section card"><div className="sectionHead"><div><h2>Recent Deliveries</h2><div className="sub">Local and outstation records are kept separate.</div></div></div>{loading?<div className="emptyState">Loading...</div>:<div className="deliveryList">{deliveries.map(o=><div className="deliveryRow" key={o.id}><div><strong>{o.customer?.customer_name||'Unknown'}</strong><div className="groupSub">{o.order_date} · {o.sales_area==='local'?'Local':'Outstation'}</div></div><div><b>{o.location}</b><div className="groupSub">{o.items||'—'}</div></div><div><b>{money(o.sales_amount)}</b><div className="groupSub">Commission {money(o.commission)}</div></div><div className="miniActions"><span className={`status-badge delivery-status-${o.status}`}>{o.status}</span><button className="btn" onClick={()=>openEdit(o)}>Edit</button></div></div>)}{!deliveries.length&&<div className="emptyState">No delivery records yet.</div>}</div>}</section>
+
+      {showDelivery&&<div className="modalBackdrop" onMouseDown={e=>{if(e.currentTarget===e.target)setShowDelivery(false)}}><form className="modal card" onSubmit={saveDelivery}><div className="modalHead"><div><h2>{editingId?'Edit Delivery':deliveryType==='local'?'New Local Delivery':'New Outstation Delivery'}</h2><div className="sub">Only the information you need for delivery records.</div></div><button type="button" onClick={()=>setShowDelivery(false)}>✕</button></div><div className="form neatForm">
+        <div className="field"><label>Date</label><input type="date" value={form.order_date} onChange={e=>setField('order_date',e.target.value)} required/></div>
+        <div className="field"><label>Driver Name</label><select value={form.driver_id} onChange={e=>{setField('driver_id',e.target.value);if(!editingId)setField('commission',type==='outstation'?String(Math.max(1,Number(form.delivery_quantity)||1)*outstationCommissionPerBox):String(localCommissionDefault))}} required><option value="">Select driver</option>{drivers.map(d=><option key={d.id} value={d.id}>{d.driver_name}</option>)}</select></div>
+        <div className="field full"><label>Customer Name & Phone</label><div className="inlineFields"><select value={form.customer_id} onChange={e=>applyCustomer(e.target.value)} required><option value="">Select customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.customer_name} {c.phone?`· ${c.phone}`:''}</option>)}</select><button type="button" className="btn" onClick={()=>setShowCustomer(true)}>+ Customer</button></div></div>
+        {deliveryType==='local'?<div className="field full"><label>Location</label><select value={form.location} onChange={e=>setField('location',e.target.value)} required><option value="">Select location</option>{LOCAL_LOCATIONS.map(x=><option key={x} value={x}>{x}</option>)}<option value="Others">Others</option></select>{form.location==='Others'&&<input value={form.other_location} onChange={e=>setField('other_location',e.target.value)} placeholder="Type location" required/>}</div>:<div className="field full"><label>Area</label><select value={form.location} onChange={e=>setField('location',e.target.value)} required><option value="">Select area</option>{OUTSTATION_AREAS.map(x=><option key={x} value={x}>{x}</option>)}<option value="Others">Others</option></select>{form.location==='Others'&&<input value={form.other_location} onChange={e=>setField('other_location',e.target.value)} placeholder="Type area" required/>}</div>}
+        <div className="field full"><label>Items</label><select value={form.items} onChange={e=>setField('items',e.target.value)} required>{ITEM_OPTIONS.map(x=><option key={x} value={x}>{x}</option>)}<option value="Others">Others</option></select>{form.items==='Others'&&<input value={form.other_items} onChange={e=>setField('other_items',e.target.value)} placeholder="Type item" required/>}</div>
+        {deliveryType==='outstation'&&<div className="field"><label>Quantity of Boxes</label><input type="number" min="1" step="1" value={form.delivery_quantity} onChange={e=>{const q=Math.max(1,Number(e.target.value)||1);setField('delivery_quantity',e.target.value);if(!editingId)setField('commission',String(q*outstationCommissionPerBox))}} required/><div className="sub">Delivery fee: RM{(Math.max(1,Number(form.delivery_quantity)||1)*outstationFee).toFixed(2)} · Commission default: RM{(Math.max(1,Number(form.delivery_quantity)||1)*Number(outstationCommissionPerBox)).toFixed(2)} · editable</div></div>}
+        <div className="field"><label>Total Amount (RM)</label><input type="number" min="0" step="0.01" value={form.sales_amount} onChange={e=>setField('sales_amount',e.target.value)} required/></div>
+        <div className="field"><label>Driver Commission (RM)</label><input type="number" min="0" step="0.01" value={form.commission} onChange={e=>setField('commission',e.target.value)} required/><div className="sub">Default: RM{deliveryType==='local'?Number(localCommissionDefault).toFixed(2):(Math.max(1,Number(form.delivery_quantity)||1)*Number(outstationCommissionPerBox)).toFixed(2)} · editable</div></div>
+        <div className="field"><label>Status</label><select value={form.status} onChange={e=>setField('status',e.target.value)}><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select></div>
+      </div><div className="modalActions"><button type="button" className="btn" onClick={()=>setShowDelivery(false)}>Cancel</button>{editingId&&<button type="button" className="danger" onClick={deleteDelivery} disabled={saving}>Delete</button>}<button className="primary" disabled={saving}>{saving?'Saving...':'Save Delivery'}</button></div></form></div>}
+
+      {showDriver&&<div className="modalBackdrop" onMouseDown={e=>{if(e.currentTarget===e.target){setShowDriver(false);setDriverEditingId(null)}}}><div className="modal card" style={{width:'min(760px,100%)'}}><div className="modalHead"><div><h2>Drivers Register</h2><div className="sub">Add, edit or delete active drivers.</div></div><button type="button" onClick={()=>{setShowDriver(false);setDriverEditingId(null)}}>✕</button></div><form onSubmit={saveDriver}><div className="form"><div className="field"><label>Driver Name</label><input value={driverForm.driver_name} onChange={e=>setDriverForm({...driverForm,driver_name:e.target.value})} required/></div><div className="field"><label>Phone</label><input value={driverForm.phone} onChange={e=>setDriverForm({...driverForm,phone:e.target.value})}/></div></div><div className="modalActions"><button type="button" className="btn" onClick={()=>{setDriverEditingId(null);setDriverForm({driver_name:'',phone:''})}}>Clear</button><button className="primary" disabled={saving}>{saving?(driverEditingId?'Saving...':'Registering...'):(driverEditingId?'Save Changes':'Register Driver')}</button></div></form></div></div>}
+
+      {showCommissionSettings&&<div className="modalBackdrop" onMouseDown={e=>{if(e.currentTarget===e.target)setShowCommissionSettings(false)}}><form className="modal card smallModal" onSubmit={e=>{e.preventDefault();saveCommissionSettings()}}><div className="modalHead"><div><h2>Commission Settings</h2><div className="sub">Set the default commission for new deliveries. Existing records keep their saved commission.</div></div><button type="button" onClick={()=>setShowCommissionSettings(false)}>✕</button></div><div className="form"><div className="field full"><label>Local Commission / Trip (RM)</label><input type="number" min="0" step="0.01" value={localCommissionDefault} onChange={e=>setLocalCommissionDefault(Number(e.target.value))}/></div><div className="field full"><label>Outstation Commission / Box (RM)</label><input type="number" min="0" step="0.01" value={outstationCommissionPerBox} onChange={e=>setOutstationCommissionPerBox(Number(e.target.value))}/></div></div><div className="modalActions"><button type="button" className="btn" onClick={()=>setShowCommissionSettings(false)}>Cancel</button><button className="primary" disabled={saving}>{saving?'Saving...':'Save Commission Settings'}</button></div></form></div>}
+
+      {showCustomer&&<div className="modalBackdrop" onMouseDown={e=>{if(e.currentTarget===e.target)setShowCustomer(false)}}><form className="modal card smallModal" onSubmit={saveCustomer}><div className="modalHead"><h2>New Delivery Customer</h2><button type="button" onClick={()=>setShowCustomer(false)}>✕</button></div><div className="form"><div className="field full"><label>Customer Name</label><input value={customerForm.customer_name} onChange={e=>setCustomerForm({...customerForm,customer_name:e.target.value})} required/></div><div className="field full"><label>Phone</label><input value={customerForm.phone} onChange={e=>setCustomerForm({...customerForm,phone:e.target.value})}/></div><div className="field full"><label>Type</label><select value={customerForm.sales_area} onChange={e=>setCustomerForm({...customerForm,sales_area:e.target.value as any})}><option value="local">Local</option><option value="outstation">Outstation</option></select></div></div><div className="modalActions"><button type="button" className="btn" onClick={()=>setShowCustomer(false)}>Cancel</button><button className="primary" disabled={saving}>{saving?'Saving...':'Save Customer'}</button></div></form></div>}
+
+      {customerView&&<div className="modalBackdrop" onMouseDown={e=>{if(e.currentTarget===e.target)setCustomerView(null)}}><div className="modal card reportModal"><div className="modalHead"><div><h2>{customerView.name}</h2><div className="sub">{customerView.phone||'No phone'} · {customerView.orders} orders · {money(customerView.sales)}</div></div><button onClick={()=>setCustomerView(null)}>✕</button></div><div className="miniActions reportActions"><button className="btn" onClick={()=>printTable(`Customer Sales - ${customerView.name}`,deliveryRows(customerDeliveries),['Date','Customer','Phone','Driver','Area','Items','Boxes','Delivery Fee','Sales Amount','Driver Commission','Status'])}>Print</button><button className="btn" onClick={()=>exportExcel(deliveryRows(customerDeliveries),`customer-${customerView.name.replace(/[^a-z0-9]+/gi,'-')}.xlsx`,'Customer Sales')}>Export Excel</button></div><div className="tableWrap"><table className="table"><thead><tr><th>Date</th><th>Type</th><th>Area</th><th>Items</th><th>Sales</th><th>Commission</th></tr></thead><tbody>{customerDeliveries.map(o=><tr key={o.id}><td>{o.order_date}</td><td>{o.sales_area}</td><td>{o.location}</td><td>{o.items}</td><td>{money(o.sales_amount)}</td><td>{money(o.commission)}</td></tr>)}</tbody></table></div></div></div>}
+
+      {driverView&&<div className="modalBackdrop" onMouseDown={e=>{if(e.currentTarget===e.target)setDriverView(null)}}><div className="modal card reportModal"><div className="modalHead"><div><h2>{driverView.name}</h2><div className="sub">Commission: {money(driverView.commission)} · Sales: {money(driverView.sales)}</div></div><button onClick={()=>setDriverView(null)}>✕</button></div><div className="miniActions reportActions"><button className="btn" onClick={()=>printDriverReport(driverView)}>Print</button><button className="btn" onClick={()=>exportExcel(deliveryRows(driverDeliveries),`driver-${driverView.name.replace(/[^a-z0-9]+/gi,'-')}.xlsx`,'Driver Deliveries')}>Export Excel</button></div><div className="tableWrap"><table className="table"><thead><tr><th>Date</th><th>Type</th><th>Customer</th><th>Area</th><th>Boxes</th><th>Sales</th><th>Commission</th></tr></thead><tbody>{driverDeliveries.map(o=><tr key={o.id}><td>{o.order_date}</td><td>{o.sales_area}</td><td>{o.customer?.customer_name}</td><td>{o.location}</td><td>{o.sales_area==='outstation'?o.delivery_quantity:1}</td><td>{money(o.sales_amount)}</td><td>{money(o.commission)}</td></tr>)}</tbody></table></div></div></div>}
+    </div></Shell>
+}
