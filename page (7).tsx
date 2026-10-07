@@ -4,15 +4,76 @@ import Link from 'next/link'
 import {useEffect,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import Shell from '@/components/Shell'
+
 const db=supabase
-const money=(n:number)=>`RM ${Number(n||0).toFixed(2)}`
-type Row={id:string;order_date:string;location:string;sales_area:'local'|'outstation';delivery_quantity:number;sales_amount:number;commission:number;status:string;deleted_at:string|null;customer?:{customer_name?:string|null;phone?:string|null};driver?:{driver_name?:string|null}}
-export default function DeletedDeliveryHistory(){
- const [user,setUser]=useState<any>(null),[rows,setRows]=useState<Row[]>([]),[loading,setLoading]=useState(true),[msg,setMsg]=useState(''),[busy,setBusy]=useState(false)
- useEffect(()=>{db.auth.getUser().then(({data})=>{setUser(data.user);if(data.user)load()});const {data}=db.auth.onAuthStateChange((_e,s)=>{setUser(s?.user??null);if(s)load()});return()=>data.subscription.unsubscribe()},[])
- async function load(){setLoading(true);const {data,error}=await db.from('wholesale_orders').select('*,customer:wholesale_customers(customer_name,phone),driver:drivers(driver_name)').not('deleted_at','is',null).order('deleted_at',{ascending:false});if(error)setMsg(error.message);else setRows((data||[]) as Row[]);setLoading(false)}
- async function restore(id:string){if(!window.confirm('Restore this delivery to the active Delivery list?'))return;setBusy(true);setMsg('');const {error}=await db.from('wholesale_orders').update({deleted_at:null}).eq('id',id);if(error)setMsg(error.message);else{setMsg('Delivery restored.');await load()}setBusy(false)}
- async function foreverDelete(id:string){if(!window.confirm('Delete this delivery forever? This cannot be undone.'))return;setBusy(true);setMsg('Deleting delivery permanently…');const {data,error}=await db.from('wholesale_orders').delete().eq('id',id).select('id');if(error){setMsg(`Delete failed: ${error.message}`)}else if(!data?.length){setMsg('Delete failed: no record was removed. Please check the Delivery table DELETE permission in Supabase.')}else{setMsg('Delivery permanently deleted.');await load()}setBusy(false)}
- if(!user)return <main style={{minHeight:'100vh',display:'grid',placeItems:'center',padding:20}}><div className="card"><Image src="/logo.png" alt="MONET GARDEN" width={120} height={120}/><h1>MONET GARDEN</h1><Link className="btn primary" href="/">Back to Sign In</Link></div></main>
- return <Shell active="Delivery"><div className="top"><div><div className="title">Delivery Deleted History</div><div className="sub">Deleted deliveries are kept here until restored or permanently removed.</div></div><Link className="btn" href="/delivery">← Delivery</Link></div>{msg&&<div className="notice">{msg}</div>}<section className="section card"><div className="tableWrap"><table className="table"><thead><tr><th>Deleted</th><th>Date</th><th>Customer</th><th>Driver</th><th>Type</th><th>Area</th><th>Boxes</th><th>Sales</th><th>Commission</th><th>Actions</th></tr></thead><tbody>{loading?<tr><td colSpan={10}><div className="emptyState">Loading...</div></td></tr>:rows.map(o=><tr key={o.id}><td>{o.deleted_at?new Date(o.deleted_at).toLocaleString('en-MY'):''}</td><td>{o.order_date}</td><td>{o.customer?.customer_name||'—'}<div className="sub">{o.customer?.phone||''}</div></td><td>{o.driver?.driver_name||'—'}</td><td>{o.sales_area==='local'?'Local':'Outstation'}</td><td>{o.location}</td><td>{o.sales_area==='outstation'?o.delivery_quantity:1}</td><td>{money(o.sales_amount)}</td><td>{money(o.commission)}</td><td><div className="miniActions"><button className="btn" onClick={()=>restore(o.id)} disabled={busy}>Restore</button><button className="danger" onClick={()=>foreverDelete(o.id)} disabled={busy}>Delete Forever</button></div></td></tr>)}{!loading&&!rows.length&&<tr><td colSpan={10}><div className="emptyState">No deleted delivery records.</div></td></tr>}</tbody></table></div></section></Shell>
+
+export default function Florists(){
+  const [rows,setRows]=useState<any[]>([])
+  const [name,setName]=useState('')
+  const [editingId,setEditingId]=useState<string|null>(null)
+  const [editingName,setEditingName]=useState('')
+  const [msg,setMsg]=useState('')
+
+  async function load(){
+    const {data,error}=await db.from('florists').select('*').order('name')
+    if(error)setMsg(error.message); else setRows(data||[])
+  }
+  useEffect(()=>{load()},[])
+
+  async function add(){
+    setMsg('')
+    const value=name.trim()
+    if(!value){setMsg('Please enter a florist name.');return}
+    const {error}=await db.from('florists').insert({name:value,active:true})
+    if(error)setMsg(error.message)
+    else{setName('');setMsg('Florist added successfully.');load()}
+  }
+  function startEdit(x:any){setEditingId(x.id);setEditingName(x.name);setMsg('')}
+  function cancelEdit(){setEditingId(null);setEditingName('')}
+  async function saveEdit(){
+    const value=editingName.trim()
+    if(!editingId||!value){setMsg('Please enter a florist name.');return}
+    const {error}=await db.from('florists').update({name:value}).eq('id',editingId)
+    if(error)setMsg(error.message)
+    else{cancelEdit();setMsg('Florist name updated successfully.');load()}
+  }
+  async function toggle(id:string,active:boolean){
+    const {error}=await db.from('florists').update({active:!active}).eq('id',id)
+    if(error)setMsg(error.message); else load()
+  }
+  async function remove(x:any){
+    if(!window.confirm(`Delete florist "${x.name}"? This cannot be undone.`))return
+    const {error}=await db.from('florists').delete().eq('id',x.id)
+    if(error)setMsg(error.message)
+    else{setMsg('Florist deleted.');load()}
+  }
+
+  return <Shell active="Orders">
+    <div className="top">
+      <div><div className="title">Florists</div><div className="sub">Register and manage florist names</div></div>
+      <Link className="btn" href="/">← Back</Link>
+    </div>
+    {msg&&<div className="msg">{msg}</div>}
+    <div className="card">
+      <div style={{display:'flex',gap:10,marginBottom:18}}>
+        <input placeholder="New florist name" value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')add()}} style={{flex:1,padding:11,border:'1px solid #dfe1e5',borderRadius:8}}/>
+        <button className="primary" onClick={add}>Add Florist</button>
+      </div>
+      <table className="table">
+        <thead><tr><th>Name</th><th>Status</th><th style={{textAlign:'right'}}>Actions</th></tr></thead>
+        <tbody>
+          {rows.map(x=><tr key={x.id}>
+            <td>{editingId===x.id?<input autoFocus value={editingName} onChange={e=>setEditingName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')saveEdit();if(e.key==='Escape')cancelEdit()}} style={{width:'100%',padding:8,border:'1px solid #dfe1e5',borderRadius:8}}/>:x.name}</td>
+            <td>{x.active?'Active':'Inactive'}</td>
+            <td style={{textAlign:'right'}}>
+              {editingId===x.id
+                ? <div style={{display:'inline-flex',gap:7}}><button className="primary" onClick={saveEdit}>Save</button><button onClick={cancelEdit}>Cancel</button></div>
+                : <div style={{display:'inline-flex',gap:7}}><button onClick={()=>startEdit(x)}>Edit</button><button onClick={()=>toggle(x.id,x.active)}>{x.active?'Deactivate':'Activate'}</button><button className="danger" onClick={()=>remove(x)}>Delete</button></div>}
+            </td>
+          </tr>)}
+          {!rows.length&&<tr><td colSpan={3} className="sub">No florists registered yet.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  </Shell>
 }
