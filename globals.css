@@ -81,3 +81,5 @@
 .monthlySalesAmount{font-size:13px;text-align:right;color:#222;white-space:nowrap}
 .top3DashboardCard{margin-top:0}
 @media(max-width:700px){.monthlySalesRow{grid-template-columns:76px minmax(110px,1fr) 96px}.monthlySalesAmount{font-size:11px}.monthlySalesMonth{font-size:11px}}
+
+.monthlySalesTableWrap{margin-top:16px}.monthlySalesTable{width:100%}.monthlySalesTable td:last-child,.monthlySalesTable th:last-child{text-align:right}.monthlySalesTable .redText{font-size:14px}

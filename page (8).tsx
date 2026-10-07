@@ -1,79 +1,19 @@
 'use client'
 import Image from 'next/image'
 import Link from 'next/link'
-import {useEffect,useState} from 'react'
+import {useEffect,useMemo,useState} from 'react'
 import {supabase} from '@/lib/supabase'
 import Shell from '@/components/Shell'
-
 const db=supabase
-
-export default function Florists(){
-  const [rows,setRows]=useState<any[]>([])
-  const [name,setName]=useState('')
-  const [editingId,setEditingId]=useState<string|null>(null)
-  const [editingName,setEditingName]=useState('')
-  const [msg,setMsg]=useState('')
-
-  async function load(){
-    const {data,error}=await db.from('florists').select('*').order('name')
-    if(error)setMsg(error.message); else setRows(data||[])
-  }
-  useEffect(()=>{load()},[])
-
-  async function add(){
-    setMsg('')
-    const value=name.trim()
-    if(!value){setMsg('Please enter a florist name.');return}
-    const {error}=await db.from('florists').insert({name:value,active:true})
-    if(error)setMsg(error.message)
-    else{setName('');setMsg('Florist added successfully.');load()}
-  }
-  function startEdit(x:any){setEditingId(x.id);setEditingName(x.name);setMsg('')}
-  function cancelEdit(){setEditingId(null);setEditingName('')}
-  async function saveEdit(){
-    const value=editingName.trim()
-    if(!editingId||!value){setMsg('Please enter a florist name.');return}
-    const {error}=await db.from('florists').update({name:value}).eq('id',editingId)
-    if(error)setMsg(error.message)
-    else{cancelEdit();setMsg('Florist name updated successfully.');load()}
-  }
-  async function toggle(id:string,active:boolean){
-    const {error}=await db.from('florists').update({active:!active}).eq('id',id)
-    if(error)setMsg(error.message); else load()
-  }
-  async function remove(x:any){
-    if(!window.confirm(`Delete florist "${x.name}"? This cannot be undone.`))return
-    const {error}=await db.from('florists').delete().eq('id',x.id)
-    if(error)setMsg(error.message)
-    else{setMsg('Florist deleted.');load()}
-  }
-
-  return <Shell active="Orders">
-    <div className="top">
-      <div><div className="title">Florists</div><div className="sub">Register and manage florist names</div></div>
-      <Link className="btn" href="/">← Back</Link>
-    </div>
-    {msg&&<div className="msg">{msg}</div>}
-    <div className="card">
-      <div style={{display:'flex',gap:10,marginBottom:18}}>
-        <input placeholder="New florist name" value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')add()}} style={{flex:1,padding:11,border:'1px solid #dfe1e5',borderRadius:8}}/>
-        <button className="primary" onClick={add}>Add Florist</button>
-      </div>
-      <table className="table">
-        <thead><tr><th>Name</th><th>Status</th><th style={{textAlign:'right'}}>Actions</th></tr></thead>
-        <tbody>
-          {rows.map(x=><tr key={x.id}>
-            <td>{editingId===x.id?<input autoFocus value={editingName} onChange={e=>setEditingName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')saveEdit();if(e.key==='Escape')cancelEdit()}} style={{width:'100%',padding:8,border:'1px solid #dfe1e5',borderRadius:8}}/>:x.name}</td>
-            <td>{x.active?'Active':'Inactive'}</td>
-            <td style={{textAlign:'right'}}>
-              {editingId===x.id
-                ? <div style={{display:'inline-flex',gap:7}}><button className="primary" onClick={saveEdit}>Save</button><button onClick={cancelEdit}>Cancel</button></div>
-                : <div style={{display:'inline-flex',gap:7}}><button onClick={()=>startEdit(x)}>Edit</button><button onClick={()=>toggle(x.id,x.active)}>{x.active?'Deactivate':'Activate'}</button><button className="danger" onClick={()=>remove(x)}>Delete</button></div>}
-            </td>
-          </tr>)}
-          {!rows.length&&<tr><td colSpan={3} className="sub">No florists registered yet.</td></tr>}
-        </tbody>
-      </table>
-    </div>
-  </Shell>
+const statusLabel=(v:string)=>v==='confirmed'?'Confirmed':v==='delivered_collected'?'Delivered / Collected':'Cancelled'
+export default function Customers(){
+ const [orders,setOrders]=useState<any[]>([]),[q,setQ]=useState(''),[searchText,setSearchText]=useState(''),[open,setOpen]=useState<string|null>(null),[msg,setMsg]=useState('')
+ async function load(){const {data,error}=await db.from('orders').select('*').is('deleted_at',null).order('order_date',{ascending:false});if(error)setMsg(error.message);else setOrders(data||[])}
+ useEffect(()=>{load()},[])
+ const customers=useMemo(()=>Object.values(orders.filter(o=>o.customer_name||o.customer_phone).reduce((acc:any,o:any)=>{const key=((o.customer_phone||'')+'|'+(o.customer_name||'')).toLowerCase();if(!acc[key])acc[key]={key,name:o.customer_name||'No Name',phone:o.customer_phone||'-',orders:[],count:0,total:0};acc[key].orders.push(o);if(o.status!=='cancelled'){acc[key].count++;acc[key].total+=Number(o.amount||0)}return acc},{})) as any[],[orders])
+ const filtered=customers.filter(c=>(c.name+' '+c.phone).toLowerCase().includes(q.toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name))
+ return <Shell active="Customers"><div className="top"><div><div className="title">Customers</div><div className="sub">Customer purchase history and total spending</div></div><Link className="btn" href="/">← Dashboard</Link></div>{msg&&<div className="msg">{msg}</div>}
+ <div className="card" style={{marginBottom:16}}><div style={{display:'flex',gap:10,alignItems:'center'}}><input className="searchInput" placeholder="Search customer name or phone number..." value={searchText} onChange={e=>setSearchText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')setQ(searchText)}}/><button className="primary" onClick={()=>setQ(searchText)}>Search</button></div></div>
+ <div className="card"><table className="table"><thead><tr><th>Customer</th><th>Phone</th><th>Total Orders</th><th>Total Amount</th><th>History</th></tr></thead><tbody>{filtered.map(c=><><tr key={c.key}><td><strong>{c.name}</strong></td><td>{c.phone}</td><td>{c.count}</td><td><strong>RM {c.total.toFixed(2)}</strong></td><td><button className="btn" onClick={()=>setOpen(open===c.key?null:c.key)}>{open===c.key?'Hide History':'View History'}</button></td></tr>{open===c.key&&<tr key={c.key+'-history'}><td colSpan={5}><div className="customerHistory"><table className="table"><thead><tr><th>Order Date</th><th>Collection</th><th>Occasion</th><th>Item</th><th>Florist</th><th>Status</th><th>Amount</th><th>Remarks</th></tr></thead><tbody>{c.orders.map((o:any)=><tr key={o.id}><td>{o.order_date||'-'}</td><td>{o.collection_date||'-'}</td><td>{o.occasion||'-'}</td><td>{o.order_type==='Others'&&o.other_item_type?`Others · ${o.other_item_type}`:o.order_type||'-'}</td><td>{o.florist_name||'-'}</td><td><span className={'status-badge '+(o.status||'')}>{statusLabel(o.status)}</span></td><td>RM {Number(o.amount||0).toFixed(2)}</td><td>{o.remarks||'-'}</td></tr>)}</tbody></table></div></td></tr>}</>)}{!filtered.length&&<tr><td colSpan={5} className="sub">No customers found.</td></tr>}</tbody></table></div>
+ </Shell>
 }
