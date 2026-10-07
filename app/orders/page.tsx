@@ -16,7 +16,22 @@ export default function Orders(){
  function sendWhatsApp(o:any){const phone=String(o.customer_phone||'').trim();if(!phone){window.alert('No customer phone number is saved for this order. Please enter the Customer Phone No. in Order Details first.');return}const clean=phone.replace(/\D/g,'');if(clean.length<8){window.alert('Please enter a valid customer phone number in Order Details.');return}const item=o.order_type==='Others'&&o.other_item_type?o.other_item_type:(o.order_type||'-');const total=Number(o.amount||0);const collection=o.collection_date||'-';const time=o.time_from&&o.time_to?`${o.time_from} - ${o.time_to}`:(o.time_from||o.time_to||'Flexible');const text=`花礼订购｜ORDER FORM\n\n姓名 Name：${o.customer_name||'-'}\n电话 Contact：${o.customer_phone||'-'}\n订购日期 Order Date：${o.order_date||'-'}\n取花日期 Collection Date：${collection}\n取花时间 Collection Time：${time}\n\n花礼款式 Style：${item}\n数量 Quantity：${o.quantity||1}\n价格 Price：RM ${total.toFixed(2)}\n备注 Remarks：${o.remarks||'-'}\n\n1. 鲜花无法完全复刻，照片仅供参考，最终以实际花材及成品为准。\nFresh flowers cannot be replicated exactly. Photos are for reference only; the final arrangement will be based on the actual flowers available.\n\n2. 退款政策 Refund Policy：\n所有费用一经确认取花日期后，均不可退款。\nAll payments are strictly non-refundable once the collection date has been confirmed.\n\n3. 更改日期 Date Change：\n如需更改取花日期，请至少提前 3 天提出申请。\nAny request to change the collection date must be made at least 3 days before the scheduled collection date.\n\n4. 改期费用 Rescheduling Fee：\n如在取花日期前 3 天内提出改期申请，将收取额外改期费用。\nRescheduling requests made within 3 days of the scheduled collection date will be subject to an additional rescheduling fee.\n\n感谢您选择 MONET GARDEN。\nThank you for choosing MONET GARDEN.`;window.open('https://wa.me/'+clean+'?text='+encodeURIComponent(text),'_blank')}
  async function deleteOrder(o:any){if(!window.confirm(`Delete order for ${o.customer_name||'this customer'}? It will move to Deleted History.`))return;const {error}=await db.from('orders').update({deleted_at:new Date().toISOString()}).eq('id',o.id);if(error)setMsg(error.message);else {setRows(x=>x.filter(row=>row.id!==o.id));setSelected(x=>x.filter(id=>id!==o.id))}}
  async function deleteSelected(){if(!selected.length)return;if(!window.confirm(`Delete ${selected.length} selected order${selected.length>1?'s':''}? They will move to Deleted History.`))return;const {error}=await db.from('orders').update({deleted_at:new Date().toISOString()}).in('id',selected);if(error)setMsg(error.message);else{setRows(x=>x.filter(row=>!selected.includes(row.id)));setSelected([]);setMsg(`${selected.length} order${selected.length>1?'s':''} moved to Deleted History.`)}}
- async function load(){const {data,error}=await db.from('orders').select('*').is('deleted_at',null);if(error)setMsg(error.message);else setRows(data||[])}useEffect(()=>{load()},[])
+ async function load(){
+  setMsg('')
+  const pageSize=1000
+  const all:any[]=[]
+  let from=0
+  while(true){
+    const {data,error}=await db.from('orders').select('*').is('deleted_at',null).range(from,from+pageSize-1)
+    if(error){setMsg(error.message);return}
+    const batch=data||[]
+    all.push(...batch)
+    if(batch.length<pageSize) break
+    from+=pageSize
+  }
+  setRows(all)
+}
+useEffect(()=>{load()},[])
  const filtered=useMemo(()=>rows.filter(o=>{const d=o.collection_date||o.order_date;const dateOk=dateFilter==='all'||(dateFilter==='today'?d===dateShift(0):dateFilter==='tomorrow'?d===dateShift(1):dateFilter==='yesterday'?d===dateShift(-1):d===customDate);return dateOk&&JSON.stringify(o).toLowerCase().includes(q.toLowerCase())}).sort((a,b)=>{const ad=a.collection_date||a.order_date||'9999-12-31',bd=b.collection_date||b.order_date||'9999-12-31';if(ad!==bd)return ad.localeCompare(bd);return (a.time_from||'99:99').localeCompare(b.time_from||'99:99')}),[rows,q,dateFilter,customDate])
  const activeRows=rows.filter(o=>o.status!=='cancelled');
  const totalRevenue=activeRows.reduce((s,o)=>s+Number(o.amount||0),0);
@@ -36,7 +51,7 @@ export default function Orders(){
       <button className={dateFilter==='today'?'quickActive':''} onClick={()=>setDateFilter('today')}>Today</button>
       <button className={dateFilter==='tomorrow'?'quickActive':''} onClick={()=>setDateFilter('tomorrow')}>Tomorrow</button>
       <button className={dateFilter==='yesterday'?'quickActive':''} onClick={()=>setDateFilter('yesterday')}>Yesterday</button>
-      <button className={dateFilter==='all'?'quickActive':''} onClick={()=>setDateFilter('all')}>All Upcoming</button>
+      <button className={dateFilter==='all'?'quickActive':''} onClick={()=>setDateFilter('all')}>All Orders</button>
       <input type="date" value={dateFilter==='custom'?customDate:''} onChange={e=>{setCustomDate(e.target.value);setDateFilter('custom')}}/>
     </div>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,marginTop:14,flexWrap:'wrap'}}><input className="searchInput" style={{marginTop:0,flex:1,minWidth:280}} placeholder="Search order, customer, phone, florist or type..." value={q} onChange={e=>setQ(e.target.value)}/>{selected.length>0&&<button className="danger" onClick={deleteSelected}>Delete Selected ({selected.length})</button>}</div>
