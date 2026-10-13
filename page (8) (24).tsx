@@ -1,0 +1,19 @@
+'use client'
+import Image from 'next/image'
+import Link from 'next/link'
+import {useEffect,useMemo,useState} from 'react'
+import {supabase} from '@/lib/supabase'
+import Shell from '@/components/Shell'
+const db=supabase
+const statusLabel=(v:string)=>v==='confirmed'?'Confirmed':v==='delivered_collected'?'Delivered / Collected':'Cancelled'
+export default function Customers(){
+ const [orders,setOrders]=useState<any[]>([]),[q,setQ]=useState(''),[searchText,setSearchText]=useState(''),[open,setOpen]=useState<string|null>(null),[msg,setMsg]=useState('')
+ async function load(){const {data,error}=await db.from('orders').select('*').is('deleted_at',null).order('order_date',{ascending:false});if(error)setMsg(error.message);else setOrders(data||[])}
+ useEffect(()=>{load()},[])
+ const customers=useMemo(()=>Object.values(orders.filter(o=>o.customer_name||o.customer_phone).reduce((acc:any,o:any)=>{const key=((o.customer_phone||'')+'|'+(o.customer_name||'')).toLowerCase();if(!acc[key])acc[key]={key,name:o.customer_name||'No Name',phone:o.customer_phone||'-',orders:[],count:0,total:0};acc[key].orders.push(o);if(o.status!=='cancelled'){acc[key].count++;acc[key].total+=Number(o.amount||0)}return acc},{})) as any[],[orders])
+ const filtered=customers.filter(c=>(c.name+' '+c.phone).toLowerCase().includes(q.toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name))
+ return <Shell active="Customers"><div className="top"><div><div className="title">Customers</div><div className="sub">Customer purchase history and total spending</div></div><Link className="btn" href="/">← Dashboard</Link></div>{msg&&<div className="msg">{msg}</div>}
+ <div className="card" style={{marginBottom:16}}><div style={{display:'flex',gap:10,alignItems:'center'}}><input className="searchInput" placeholder="Search customer name or phone number..." value={searchText} onChange={e=>setSearchText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')setQ(searchText)}}/><button className="primary" onClick={()=>setQ(searchText)}>Search</button></div></div>
+ <div className="card"><table className="table"><thead><tr><th>Customer</th><th>Phone</th><th>Total Orders</th><th>Total Amount</th><th>History</th></tr></thead><tbody>{filtered.map(c=><><tr key={c.key}><td><strong>{c.name}</strong></td><td>{c.phone}</td><td>{c.count}</td><td><strong>RM {c.total.toFixed(2)}</strong></td><td><button className="btn" onClick={()=>setOpen(open===c.key?null:c.key)}>{open===c.key?'Hide History':'View History'}</button></td></tr>{open===c.key&&<tr key={c.key+'-history'}><td colSpan={5}><div className="customerHistory"><table className="table"><thead><tr><th>Order Date</th><th>Collection</th><th>Occasion</th><th>Item</th><th>Florist</th><th>Status</th><th>Amount</th><th>Remarks</th></tr></thead><tbody>{c.orders.map((o:any)=><tr key={o.id}><td>{o.order_date||'-'}</td><td>{o.collection_date||'-'}</td><td>{o.occasion||'-'}</td><td>{o.order_type==='Others'&&o.other_item_type?`Others · ${o.other_item_type}`:o.order_type||'-'}</td><td>{o.florist_name||'-'}</td><td><span className={'status-badge '+(o.status||'')}>{statusLabel(o.status)}</span></td><td>RM {Number(o.amount||0).toFixed(2)}</td><td>{o.remarks||'-'}</td></tr>)}</tbody></table></div></td></tr>}</>)}{!filtered.length&&<tr><td colSpan={5} className="sub">No customers found.</td></tr>}</tbody></table></div>
+ </Shell>
+}
