@@ -1,79 +1,26 @@
 'use client'
-import Image from 'next/image'
-import Link from 'next/link'
-import {useEffect,useState} from 'react'
-import {supabase} from '@/lib/supabase'
+import Image from 'next/image';import Link from 'next/link';import {useEffect,useState} from 'react';import {supabase} from '@/lib/supabase'
 import Shell from '@/components/Shell'
-
 const db=supabase
 
-export default function Florists(){
-  const [rows,setRows]=useState<any[]>([])
-  const [name,setName]=useState('')
-  const [editingId,setEditingId]=useState<string|null>(null)
-  const [editingName,setEditingName]=useState('')
-  const [msg,setMsg]=useState('')
-
-  async function load(){
-    const {data,error}=await db.from('florists').select('*').order('name')
-    if(error)setMsg(error.message); else setRows(data||[])
-  }
-  useEffect(()=>{load()},[])
-
-  async function add(){
-    setMsg('')
-    const value=name.trim()
-    if(!value){setMsg('Please enter a florist name.');return}
-    const {error}=await db.from('florists').insert({name:value,active:true})
-    if(error)setMsg(error.message)
-    else{setName('');setMsg('Florist added successfully.');load()}
-  }
-  function startEdit(x:any){setEditingId(x.id);setEditingName(x.name);setMsg('')}
-  function cancelEdit(){setEditingId(null);setEditingName('')}
-  async function saveEdit(){
-    const value=editingName.trim()
-    if(!editingId||!value){setMsg('Please enter a florist name.');return}
-    const {error}=await db.from('florists').update({name:value}).eq('id',editingId)
-    if(error)setMsg(error.message)
-    else{cancelEdit();setMsg('Florist name updated successfully.');load()}
-  }
-  async function toggle(id:string,active:boolean){
-    const {error}=await db.from('florists').update({active:!active}).eq('id',id)
-    if(error)setMsg(error.message); else load()
-  }
-  async function remove(x:any){
-    if(!window.confirm(`Delete florist "${x.name}"? This cannot be undone.`))return
-    const {error}=await db.from('florists').delete().eq('id',x.id)
-    if(error)setMsg(error.message)
-    else{setMsg('Florist deleted.');load()}
-  }
-
-  return <Shell active="Orders">
-    <div className="top">
-      <div><div className="title">Florists</div><div className="sub">Register and manage florist names</div></div>
-      <Link className="btn" href="/">← Back</Link>
-    </div>
-    {msg&&<div className="msg">{msg}</div>}
-    <div className="card">
-      <div style={{display:'flex',gap:10,marginBottom:18}}>
-        <input placeholder="New florist name" value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')add()}} style={{flex:1,padding:11,border:'1px solid #dfe1e5',borderRadius:8}}/>
-        <button className="primary" onClick={add}>Add Florist</button>
-      </div>
-      <table className="table">
-        <thead><tr><th>Name</th><th>Status</th><th style={{textAlign:'right'}}>Actions</th></tr></thead>
-        <tbody>
-          {rows.map(x=><tr key={x.id}>
-            <td>{editingId===x.id?<input autoFocus value={editingName} onChange={e=>setEditingName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')saveEdit();if(e.key==='Escape')cancelEdit()}} style={{width:'100%',padding:8,border:'1px solid #dfe1e5',borderRadius:8}}/>:x.name}</td>
-            <td>{x.active?'Active':'Inactive'}</td>
-            <td style={{textAlign:'right'}}>
-              {editingId===x.id
-                ? <div style={{display:'inline-flex',gap:7}}><button className="primary" onClick={saveEdit}>Save</button><button onClick={cancelEdit}>Cancel</button></div>
-                : <div style={{display:'inline-flex',gap:7}}><button onClick={()=>startEdit(x)}>Edit</button><button onClick={()=>toggle(x.id,x.active)}>{x.active?'Deactivate':'Activate'}</button><button className="danger" onClick={()=>remove(x)}>Delete</button></div>}
-            </td>
-          </tr>)}
-          {!rows.length&&<tr><td colSpan={3} className="sub">No florists registered yet.</td></tr>}
-        </tbody>
-      </table>
-    </div>
-  </Shell>
-}
+export default function DeletedOrders(){
+ const [rows,setRows]=useState<any[]>([]),[msg,setMsg]=useState(''),[selected,setSelected]=useState<string[]>([]),[busy,setBusy]=useState(false)
+ async function load(){const {data,error}=await db.from('orders').select('*').not('deleted_at','is',null).order('deleted_at',{ascending:false});if(error)setMsg(error.message);else{setRows(data||[]);setSelected([])}}
+ useEffect(()=>{load()},[])
+ const allSelected=rows.length>0&&selected.length===rows.length
+ function toggle(id:string){setSelected(x=>x.includes(id)?x.filter(v=>v!==id):[...x,id])}
+ function toggleAll(){setSelected(allSelected?[]:rows.map(o=>o.id))}
+ async function restore(id:string){const {error}=await db.from('orders').update({deleted_at:null}).eq('id',id);if(error)setMsg(error.message);else{setMsg('Order restored.');load()}}
+ async function restoreSelected(){if(!selected.length)return;if(!window.confirm(`Restore ${selected.length} selected order${selected.length>1?'s':''}?`))return;setBusy(true);const {error}=await db.from('orders').update({deleted_at:null}).in('id',selected);setBusy(false);if(error)setMsg(error.message);else{setMsg(`${selected.length} order${selected.length>1?'s':''} restored.`);load()}}
+ async function forever(id:string){if(!window.confirm('Permanently delete this order? This cannot be undone.'))return;const {error}=await db.from('orders').delete().eq('id',id);if(error)setMsg(error.message);else{setMsg('Order permanently deleted.');load()}}
+ async function foreverSelected(){if(!selected.length)return;if(!window.confirm(`Permanently delete ${selected.length} selected order${selected.length>1?'s':''}? This cannot be undone.`))return;setBusy(true);const {error}=await db.from('orders').delete().in('id',selected);setBusy(false);if(error)setMsg(error.message);else{setMsg(`${selected.length} order${selected.length>1?'s':''} permanently deleted.`);load()}}
+ return <Shell active="Orders"><div className="top"><div><div className="title">Deleted History</div><div className="sub">Restore orders or permanently delete them</div></div><Link className="btn" href="/orders">← Back to Orders</Link></div>
+ {msg&&<div className="msg">{msg}</div>}
+ <div className="card">
+  <div style={{marginBottom:14,padding:12,borderRadius:9,background:'#fff8df',color:'#7d6200',fontSize:13}}>Permanent delete cannot be undone. Use Restore if you only want to remove the deleted status.</div>
+  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:14}}>
+   <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><button className={allSelected?'primary':'btn'} onClick={toggleAll}>{allSelected?'Clear Selection':'Select All'}</button><span className="sub">{selected.length} selected</span></div>
+   {selected.length>0&&<div className="actionRow"><button className="primary" onClick={restoreSelected} disabled={busy}>Restore Selected ({selected.length})</button><button className="danger" onClick={foreverSelected} disabled={busy}>Delete Selected Forever ({selected.length})</button></div>}
+  </div>
+  <div style={{overflowX:'auto'}}><table className="table"><thead><tr><th style={{width:46}}><input type="checkbox" aria-label="Select all deleted orders" checked={allSelected} onChange={toggleAll}/></th><th>Collection Date</th><th>Type</th><th>Customer</th><th>Phone</th><th>Florist</th><th>Amount</th><th>Deleted</th><th>Actions</th></tr></thead><tbody>{rows.map(o=><tr key={o.id}><td><input type="checkbox" aria-label={`Select ${o.customer_name||'order'}`} checked={selected.includes(o.id)} onChange={()=>toggle(o.id)}/></td><td><strong className="collectionDate">{o.collection_date||'-'}</strong></td><td>{o.order_type==='Others'&&o.other_item_type?`Others · ${o.other_item_type}`:o.order_type}</td><td>{o.customer_name||'-'}</td><td>{o.customer_phone||'-'}</td><td>{o.florist_name||'-'}</td><td>RM {Number(o.amount||0).toFixed(2)}</td><td>{o.deleted_at?new Date(o.deleted_at).toLocaleString(): '-'}</td><td><div className="actionRow"><button className="primary" onClick={()=>restore(o.id)}>Restore</button><button className="danger" onClick={()=>forever(o.id)}>Delete Forever</button></div></td></tr>)}{!rows.length&&<tr><td colSpan={9} className="sub">No deleted orders.</td></tr>}</tbody></table></div>
+ </div></Shell>}

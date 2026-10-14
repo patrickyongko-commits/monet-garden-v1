@@ -13,7 +13,50 @@ export default function Orders(){
  const [rows,setRows]=useState<any[]>([]),[q,setQ]=useState(''),[msg,setMsg]=useState(''),[dateMode,setDateMode]=useState<'collection'|'order'>('collection'),[dateFilter,setDateFilter]=useState('all'),[customDate,setCustomDate]=useState(''),[selected,setSelected]=useState<string[]>([])
  function statusLabel(v:string){return statusOptions.find(x=>x[0]===v)?.[1]||v||'Select Status'}
  async function updateStatus(id:string,status:string){const {error}=await db.from('orders').update({status}).eq('id',id);if(error)setMsg(error.message);else setRows(x=>x.map(o=>o.id===id?{...o,status}:o))}
- function sendWhatsApp(o:any){const phone=String(o.customer_phone||'').trim();if(!phone){window.alert('No customer phone number is saved for this order. Please enter the Customer Phone No. in Order Details first.');return}const clean=phone.replace(/\D/g,'');if(clean.length<8){window.alert('Please enter a valid customer phone number in Order Details.');return}const item=o.order_type==='Others'&&o.other_item_type?o.other_item_type:(o.order_type||'-');const total=Number(o.amount||0);const collection=o.collection_date||'-';const time=o.time_from&&o.time_to?`${o.time_from} - ${o.time_to}`:(o.time_from||o.time_to||'Flexible');const text=`花礼订购｜ORDER FORM\n\n姓名 Name：${o.customer_name||'-'}\n电话 Contact：${o.customer_phone||'-'}\n订购日期 Order Date：${o.order_date||'-'}\n取花日期 Collection Date：${collection}\n取花时间 Collection Time：${time}\n\n花礼款式 Style：${item}\n数量 Quantity：${o.quantity||1}\n价格 Price：RM ${total.toFixed(2)}\n备注 Remarks：${o.remarks||'-'}\n\n1. 鲜花无法完全复刻，照片仅供参考，最终以实际花材及成品为准。\nFresh flowers cannot be replicated exactly. Photos are for reference only; the final arrangement will be based on the actual flowers available.\n\n2. 退款政策 Refund Policy：\n所有费用一经确认取花日期后，均不可退款。\nAll payments are strictly non-refundable once the collection date has been confirmed.\n\n3. 更改日期 Date Change：\n如需更改取花日期，请至少提前 3 天提出申请。\nAny request to change the collection date must be made at least 3 days before the scheduled collection date.\n\n4. 改期费用 Rescheduling Fee：\n如在取花日期前 3 天内提出改期申请，将收取额外改期费用。\nRescheduling requests made within 3 days of the scheduled collection date will be subject to an additional rescheduling fee.\n\n感谢您选择 MONET GARDEN。\nThank you for choosing MONET GARDEN.`;window.open('https://wa.me/'+clean+'?text='+encodeURIComponent(text),'_blank')}
+ function sendWhatsApp(o:any){
+  const phone=String(o.customer_phone||'').trim();
+  if(!phone){window.alert('No customer phone number is saved for this order. Please enter the Customer Phone No. in Order Details first.');return}
+  const clean=phone.replace(/\D/g,'');
+  if(clean.length<8){window.alert('Please enter a valid customer phone number in Order Details.');return}
+  const item=o.order_type==='Others'&&o.other_item_type?o.other_item_type:(o.order_type||'-');
+  const total=Number(o.amount||0);
+  const collection=o.collection_date||'-';
+  const time=o.time_from&&o.time_to?`${o.time_from} - ${o.time_to}`:(o.time_from||o.time_to||'Flexible');
+  const hasCard=!!o.wishing_card;
+  const cardText=hasCard?`Yes${o.wishing_message?`\nWishing Card Message：${o.wishing_message}`:''}`:'No';
+  const text=`花礼订购｜ORDER FORM
+
+姓名 Name：${o.customer_name||'-'}
+电话 Contact：${o.customer_phone||'-'}
+订购日期 Order Date：${o.order_date||'-'}
+取花日期 Collection Date：${collection}
+取花时间 Collection Time：${time}
+
+花礼款式 Style：${item}
+数量 Quantity：${o.quantity||1}
+价格 Price：RM ${total.toFixed(2)}
+Wishing Card 贺卡：${cardText}
+备注 Remarks：${o.remarks||'-'}
+
+1. 鲜花无法完全复刻，照片仅供参考，最终以实际花材及成品为准。
+Fresh flowers cannot be replicated exactly. Photos are for reference only; the final arrangement will be based on the actual flowers available.
+
+2. 退款政策 Refund Policy：
+所有费用一经确认取花日期后，均不可退款。
+All payments are strictly non-refundable once the collection date has been confirmed.
+
+3. 更改日期 Date Change：
+如需更改取花日期，请至少提前 3 天提出申请。
+Any request to change the collection date must be made at least 3 days before the scheduled collection date.
+
+4. 改期费用 Rescheduling Fee：
+如在取花日期前 3 天内提出改期申请，将收取额外改期费用。
+Rescheduling requests made within 3 days of the scheduled collection date will be subject to an additional rescheduling fee.
+
+感谢您选择 MONET GARDEN。
+Thank you for choosing MONET GARDEN.`;
+  window.open('https://wa.me/'+clean+'?text='+encodeURIComponent(text),'_blank','noopener,noreferrer')
+ }
  async function deleteOrder(o:any){if(!window.confirm(`Delete order for ${o.customer_name||'this customer'}? It will move to Deleted History.`))return;const {error}=await db.from('orders').update({deleted_at:new Date().toISOString()}).eq('id',o.id);if(error)setMsg(error.message);else {setRows(x=>x.filter(row=>row.id!==o.id));setSelected(x=>x.filter(id=>id!==o.id))}}
  async function deleteSelected(){if(!selected.length)return;if(!window.confirm(`Delete ${selected.length} selected order${selected.length>1?'s':''}? They will move to Deleted History.`))return;const {error}=await db.from('orders').update({deleted_at:new Date().toISOString()}).in('id',selected);if(error)setMsg(error.message);else{setRows(x=>x.filter(row=>!selected.includes(row.id)));setSelected([]);setMsg(`${selected.length} order${selected.length>1?'s':''} moved to Deleted History.`)}}
  async function load(){
@@ -80,7 +123,7 @@ useEffect(()=>{load()},[])
             <div className="orderGroup"><div className="groupLabel">Customer</div><div className="groupMain"><strong>{o.customer_name||'-'}</strong></div><div className="groupSub">{o.customer_phone||'No telephone number'}</div></div>
             <div className="orderGroup"><div className="groupLabel">Item</div><div className="groupMain"><strong>{item}</strong></div><div className="groupSub">Quantity <b>{o.quantity||1}</b>{o.occasion?<> · {o.occasion}</>:null}</div></div>
             <div className="orderGroup paymentGroup"><div className="groupLabel">Amount & Paid</div><div className="paymentLines"><span>Total <b>RM {total.toFixed(2)}</b></span><span>Paid <b>{paid===null?'—':`RM ${paid.toFixed(2)}`}</b></span><span className={balance===0?'paidText':'balanceText'}>Balance <b>{balance===null?'—':`RM ${balance.toFixed(2)}`}</b></span></div></div>
-            <div className="orderGroup notesGroup"><div className="groupLabel">Reference & Remarks</div><div className="referenceMini">{o.reference_image_url?<a href={o.reference_image_url} target="_blank" rel="noreferrer"><img src={o.reference_image_url} alt="Reference"/></a>:<span className="noReference">No reference</span>}<div>{o.remarks?<div className="remarkText">{o.remarks}</div>:<div className="groupSub">No remarks</div>}</div></div></div>
+            <div className="orderGroup notesGroup"><div className="groupLabel">Reference, Wishing Card & Remarks</div><div className="referenceMini">{o.reference_image_url?<a href={o.reference_image_url} target="_blank" rel="noreferrer"><img src={o.reference_image_url} alt="Reference"/></a>:<span className="noReference">No reference</span>}<div className="referenceDetails"><div className="groupSub"><b>Reference photo</b></div><div className="wishingCardSummary"><div className="wishingCardHeading"><b>Wishing Card</b><span className={o.wishing_card?'wishingYes':'wishingNo'}>{o.wishing_card?'YES — Card required':'NO — No card'}</span></div>{o.wishing_card&&<div className="wishingMessage"><span className="wishingMessageLabel">MESSAGE TO PRINT</span><div>{o.wishing_message?.trim()||'Message not provided'}</div></div>}</div><div className="remarksSummary"><b>Remarks</b><div>{o.remarks?.trim()||'No remarks'}</div></div></div></div></div>
           </div>
           <div className="orderActionBar cardActionBar"><span className="actionLabel">Order Actions</span><Link className="btn" href={`/orders/new?edit=${o.id}`}>View / Edit</Link><Link className="btn" href={`/orders/new?duplicate=${o.id}`}>Duplicate</Link><button className="danger" onClick={()=>deleteOrder(o)}>Delete</button><button className="whatsapp" onClick={()=>sendWhatsApp(o)}>WhatsApp</button></div>
         </div>
