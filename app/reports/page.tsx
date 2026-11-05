@@ -31,7 +31,7 @@ export default function Reports(){
   const monthRows=byMonth.map(([month,sales])=>[monthLabel(month),money(sales)]);
   const monthlyTypeRows=monthlyTypeData.map(row=>[monthLabel(row.month),...monthlyTypeKeys.map(k=>money(row.types.get(k)||0)),money(row.total)]);
   const floristRows=byFloristGroup.map(x=>[x.florist,x.item,x.orders,x.qty,money(x.sales)]);
-  const floristDetail=floristDetailRows.map(x=>[x.florist,x.orderDate,x.item,x.qty,money(x.amount),x.customer,x.orderId]);
+  const floristDetail=floristDetailRows.map(x=>[x.florist,x.orderDate,x.item,x.qty,money(x.amount),x.customer]);
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>MONET GARDEN - Sales Report</title><style>
   *{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#222;padding:22px;font-size:11px}h1{font-size:21px;margin:0 0 5px}h2{font-size:15px;margin:22px 0 8px;border-bottom:1px solid #bbb;padding-bottom:5px}.meta{color:#666;margin-bottom:12px}.summary{display:flex;gap:12px;margin:12px 0 18px}.summary div{border:1px solid #ccc;padding:10px 14px;min-width:140px}.summary b{display:block;font-size:15px;margin-top:4px}.total{font-weight:bold;font-size:16px}table{border-collapse:collapse;width:100%;font-size:10px;margin:7px 0 14px;page-break-inside:auto}thead{display:table-header-group}tr{page-break-inside:avoid}th,td{border:1px solid #ccc;padding:5px 6px;text-align:left;vertical-align:top}th{background:#f1f1f1}.muted{color:#666}@page{size:A4 landscape;margin:12mm}@media print{body{padding:0}}
   </style></head><body><h1>MONET GARDEN — SALES REPORT</h1><div class="meta">Date range: ${esc(from||'All dates')} to ${esc(to||'All dates')} · Order type: ${esc(type)} · Printed ${esc(new Date().toLocaleString())}</div>
@@ -40,7 +40,7 @@ export default function Reports(){
   <h2>Monthly Sales</h2>${table(['Month','Sales Amount'],monthRows)}
   <h2>Monthly Sales by Order Type</h2>${table(['Month',...monthlyTypeKeys,'Total Sales'],monthlyTypeRows)}
   <h2>Florist Sales by Item Group</h2>${table(['Florist','Item Group','Orders','Quantity','Sales'],floristRows)}
-  <h2>Florist Sales Detail</h2>${table(['Florist','Order Date','Item Type','Quantity','Amount','Customer','Order ID'],floristDetail)}
+  <h2>Florist Sales Detail</h2>${table(['Florist','Order Date','Item Type','Quantity','Amount','Customer'],floristDetail)}
   <h2>Overall Order Details</h2>${table(['Order Date','Collection Date','Time','Occasion','Type','Qty','Customer','Phone','Florist','Amount','Status','Wishing Card','Wishing Message','Remarks'],orderRows)}
   </body></html>`);
   w.document.close();w.focus();setTimeout(()=>{w.print()},500);
@@ -53,7 +53,7 @@ export default function Reports(){
   XLSX.utils.book_append_sheet(wb,ws2,'Sales by Order Type');
   const ws3=XLSX.utils.json_to_sheet(byFloristGroup.map(x=>({'Florist':x.florist,'Item Group':x.item,'Orders':x.orders,'Quantity':x.qty,'Sales (RM)':x.sales})));
   XLSX.utils.book_append_sheet(wb,ws3,'Florist Item Summary');
-  const floristDetailExport=floristDetailRows.map(x=>({'Florist':x.florist,'Order Date':x.orderDate,'Item Type':x.item,'Quantity':x.qty,'Amount (RM)':x.amount,'Customer':x.customer,'Order ID':x.orderId}));
+  const floristDetailExport=floristDetailRows.map(x=>({'Florist':x.florist,'Order Date':x.orderDate,'Item Type':x.item,'Quantity':x.qty,'Amount (RM)':x.amount,'Customer':x.customer}));
   const ws4=XLSX.utils.json_to_sheet(floristDetailExport.length?floristDetailExport:[{'Florist':'No records'}]);
   XLSX.utils.book_append_sheet(wb,ws4,'Florist Sales Detail');
   for(const florist of floristNames){
@@ -66,9 +66,9 @@ export default function Reports(){
       ['Total Quantity',rows.reduce((n,x)=>n+x.qty,0)],
       ['Total Sales (RM)',rows.reduce((n,x)=>n+x.amount,0)],
       [],
-      ['Order Date','Item Type','Quantity','Amount (RM)','Customer','Order ID']
+      ['Order Date','Item Type','Quantity','Amount (RM)','Customer']
     ];
-    for(const x of rows)data.push([x.orderDate,x.item,x.qty,x.amount,x.customer,x.orderId]);
+    for(const x of rows)data.push([x.orderDate,x.item,x.qty,x.amount,x.customer]);
     const ws=XLSX.utils.aoa_to_sheet(data);
     const safe=(florist||'Unassigned').replace(/[\\\/?*\[\]:]/g,' ').trim().slice(0,31)||'Unassigned';
     let name=safe,i=2;while(wb.SheetNames.includes(name)){name=safe.slice(0,28)+` ${i++}`}
@@ -87,11 +87,11 @@ export default function Reports(){
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(exportRows.length?exportRows:[{'Order ID':'No records'}]),'Overall Orders');
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(byType.map(([item,x])=>({'Order Type':item,'Orders':x.orders,'Quantity':x.qty,'Sales (RM)':x.sales}))),'Sales by Order Type');
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(byFloristGroup.map(x=>({'Florist':x.florist,'Item Group':x.item,'Orders':x.orders,'Quantity':x.qty,'Sales (RM)':x.sales}))),'Florist Item Summary');
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(floristDetailRows.map(x=>({'Florist':x.florist,'Order Date':x.orderDate,'Item Type':x.item,'Quantity':x.qty,'Amount (RM)':x.amount,'Customer':x.customer,'Order ID':x.orderId}))), 'Florist Sales Detail');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(floristDetailRows.map(x=>({'Florist':x.florist,'Order Date':x.orderDate,'Item Type':x.item,'Quantity':x.qty,'Amount (RM)':x.amount,'Customer':x.customer}))), 'Florist Sales Detail');
     for(const florist of floristNames){
       const rows=floristDetailRows.filter(x=>x.florist===florist);
-      const data=[['Florist Sales Detail'],['Florist',florist],['Date Range',`${from||'All'} to ${to||'All'}`],['Total Orders',rows.length],['Total Quantity',rows.reduce((n,x)=>n+x.qty,0)],['Total Sales (RM)',rows.reduce((n,x)=>n+x.amount,0)],[],['Order Date','Item Type','Quantity','Amount (RM)','Customer','Order ID']];
-      for(const x of rows)data.push([x.orderDate,x.item,x.qty,x.amount,x.customer,x.orderId]);
+      const data=[['Florist Sales Detail'],['Florist',florist],['Date Range',`${from||'All'} to ${to||'All'}`],['Total Orders',rows.length],['Total Quantity',rows.reduce((n,x)=>n+x.qty,0)],['Total Sales (RM)',rows.reduce((n,x)=>n+x.amount,0)],[],['Order Date','Item Type','Quantity','Amount (RM)','Customer']];
+      for(const x of rows)data.push([x.orderDate,x.item,x.qty,x.amount,x.customer]);
       const ws=XLSX.utils.aoa_to_sheet(data);const safe=(florist||'Unassigned').replace(/[\\\/?*\[\]:]/g,' ').trim().slice(0,31)||'Unassigned';let name=safe,i=2;while(wb.SheetNames.includes(name)){name=safe.slice(0,28)+` ${i++}`}XLSX.utils.book_append_sheet(wb,ws,name);
     }
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(byMonth.map(([month,sales])=>({'Month':monthLabel(month),'Sales (RM)':sales}))),'Monthly Sales');

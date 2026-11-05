@@ -12,7 +12,21 @@ const money=(n:number)=>`RM ${Number(n||0).toFixed(2)}`
 type Row={id:string;order_date:string;sales_area:'local'|'outstation';location:string;sales_amount:number;delivery_fee:number;delivery_quantity:number;commission:number;status:string;customer?:{customer_name?:string;phone?:string};driver?:{driver_name?:string};items?:string|null}
 function exportExcel(rows:any[],filename:string,sheet:string){const wb=XLSX.utils.book_new();const ws=XLSX.utils.json_to_sheet(rows);XLSX.utils.book_append_sheet(wb,ws,sheet);XLSX.writeFile(wb,filename)}
 function esc(v:any){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
-function printRows(title:string,rows:any[],columns:string[]){const w=window.open('','_blank','width=1100,height=760');if(!w)return;const head=columns.map(c=>`<th>${esc(c)}</th>`).join('');const body=rows.map(r=>`<tr>${columns.map(c=>`<td>${esc(r[c])}</td>`).join('')}</tr>`).join('');w.document.write(`<!doctype html><html><head><title>${esc(title)}</title><style>body{font-family:Arial;padding:24px;color:#222}h1{font-size:20px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #ccc;padding:7px;text-align:left}th{background:#f5f5f5}</style></head><body><h1>MONET GARDEN — ${esc(title)}</h1><p>Printed ${new Date().toLocaleString()}</p><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></body></html>`);w.document.close();w.focus();setTimeout(()=>{w.print();w.close()},250)}
+function printRows(title:string,rows:any[],columns:string[]){
+ const w=window.open('','_blank','width=1100,height=760');if(!w)return
+ const head=columns.map(c=>`<th>${esc(c)}</th>`).join('')
+ const grouped=new Map<string,any[]>()
+ rows.forEach(r=>{const driver=String(r.Driver||'Unassigned Driver');if(!grouped.has(driver))grouped.set(driver,[]);grouped.get(driver)!.push(r)})
+ const total=rows.reduce((sum,r)=>sum+Number(r['Sales Amount']||0),0)
+ const sections=[...grouped.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([driver,items])=>{
+  const body=items.map(r=>`<tr>${columns.map(c=>`<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')
+  const subtotal=items.reduce((sum,r)=>sum+Number(r['Sales Amount']||0),0)
+  return `<h2>${esc(driver)}</h2><table><thead><tr>${head}</tr></thead><tbody>${body}<tr class="subtotal"><td colspan="8">${esc(driver)} SUBTOTAL</td><td>${money(subtotal)}</td><td></td><td></td></tr></tbody></table>`
+ }).join('')
+ const rangeText=''
+ w.document.write(`<!doctype html><html><head><title>${esc(title)}</title><style>body{font-family:Arial;padding:24px;color:#222}h1{font-size:20px;margin-bottom:5px}h2{font-size:15px;margin:22px 0 8px;page-break-after:avoid}p{color:#666;font-size:12px}table{border-collapse:collapse;width:100%;font-size:12px;margin-bottom:14px;page-break-inside:avoid}th,td{border:1px solid #ccc;padding:7px;text-align:left}th{background:#f5f5f5}.subtotal td{font-weight:700;background:#fafafa}.grand{margin-top:20px;padding:14px;border:2px solid #333;text-align:right;font-size:17px;font-weight:700}@media print{body{padding:0}h2{break-after:avoid}table{break-inside:avoid}}</style></head><body><h1>MONET GARDEN — ${esc(title)}</h1><p>Printed ${new Date().toLocaleString()} · ${rows.length} delivery records</p>${sections||'<p>No delivery records.</p>'}<div class="grand">TOTAL AMOUNT: ${money(total)}</div></body></html>`)
+ w.document.close();w.focus();setTimeout(()=>{w.print()},500)
+}
 function rowsFor(rows:Row[]){return rows.map(o=>({Date:o.order_date,Customer:o.customer?.customer_name||'',Phone:o.customer?.phone||'',Driver:o.driver?.driver_name||'',Area:o.location,Items:o.items||'',Boxes:o.sales_area==='outstation'?o.delivery_quantity:'', 'Delivery Fee':Number(o.delivery_fee||0),'Sales Amount':Number(o.sales_amount||0),'Driver Commission':Number(o.commission||0),Status:o.status}))}
 
 export default function DeliveryReport(){

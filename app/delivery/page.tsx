@@ -227,9 +227,16 @@ export default function DeliveryPage(){
   function printTable(title:string, rows:any[], columns:string[]){
     const w=window.open('','_blank','width=1100,height=760'); if(!w)return
     const head=columns.map(c=>`<th>${esc(c)}</th>`).join('')
-    const body=rows.map(r=>`<tr>${columns.map(c=>`<td>${esc((r as Record<string, unknown>)[c])}</td>`).join('')}</tr>`).join('')
-    w.document.write(`<!doctype html><html><head><title>MONET GARDEN - ${esc(title)}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#222}h1{font-size:20px;margin:0 0 4px}p{color:#666;font-size:12px;margin:0 0 18px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #ccc;padding:7px 8px;text-align:left}th{background:#f5f5f5}</style></head><body><h1>MONET GARDEN — ${esc(title)}</h1><p>Printed ${new Date().toLocaleString()}</p><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></body></html>`)
-    w.document.close(); w.focus(); setTimeout(()=>{w.print();w.close()},250)
+    const grouped=new Map<string,any[]>()
+    rows.forEach(r=>{const driver=String(r.Driver||'Unassigned Driver');if(!grouped.has(driver))grouped.set(driver,[]);grouped.get(driver)!.push(r)})
+    const total=rows.reduce((sum,r)=>sum+Number(r['Sales Amount']||0),0)
+    const sections=[...grouped.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([driver,items])=>{
+      const body=items.map(r=>`<tr>${columns.map(c=>`<td>${esc((r as Record<string, unknown>)[c])}</td>`).join('')}</tr>`).join('')
+      const subtotal=items.reduce((sum,r)=>sum+Number(r['Sales Amount']||0),0)
+      return `<h2>${esc(driver)}</h2><table><thead><tr>${head}</tr></thead><tbody>${body}<tr class="subtotal"><td colspan="8">${esc(driver)} SUBTOTAL</td><td>RM ${subtotal.toFixed(2)}</td><td></td><td></td></tr></tbody></table>`
+    }).join('')
+    w.document.write(`<!doctype html><html><head><title>MONET GARDEN - ${esc(title)}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#222}h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 8px;page-break-after:avoid}p{color:#666;font-size:12px;margin:0 0 18px}table{border-collapse:collapse;width:100%;font-size:12px;margin-bottom:14px;page-break-inside:avoid}th,td{border:1px solid #ccc;padding:7px 8px;text-align:left}th{background:#f5f5f5}.subtotal td{font-weight:700;background:#fafafa}.grand{margin-top:20px;padding:14px;border:2px solid #333;text-align:right;font-size:17px;font-weight:700}@media print{body{padding:0}h2{break-after:avoid}table{break-inside:avoid}}</style></head><body><h1>MONET GARDEN — ${esc(title)}</h1><p>Printed ${new Date().toLocaleString()} · ${rows.length} delivery records</p>${sections||'<p>No delivery records.</p>'}<div class="grand">TOTAL AMOUNT: RM ${total.toFixed(2)}</div></body></html>`)
+    w.document.close(); w.focus(); setTimeout(()=>{w.print()},500)
   }
   function printDeliveryReport(title:string, rows:Delivery[]){printTable(title,deliveryRows(rows),['Date','Customer','Phone','Driver','Area','Items','Boxes','Delivery Fee','Sales Amount','Driver Commission','Status'])}
   function printDriverReport(d:DriverStat){
