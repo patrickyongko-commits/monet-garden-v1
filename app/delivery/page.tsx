@@ -232,7 +232,17 @@ export default function DeliveryPage(){
     w.document.close(); w.focus(); setTimeout(()=>{w.print();w.close()},250)
   }
   function printDeliveryReport(title:string, rows:Delivery[]){printTable(title,deliveryRows(rows),['Date','Customer','Phone','Driver','Area','Items','Boxes','Delivery Fee','Sales Amount','Driver Commission','Status'])}
-  function printDriverReport(d:DriverStat){printTable(`Driver Commission - ${d.name}`,deliveryRows(driverDeliveriesFor(d.id)),['Date','Customer','Phone','Driver','Area','Items','Boxes','Delivery Fee','Sales Amount','Driver Commission','Status'])}
+  function printDriverReport(d:DriverStat){
+    const records=driverDeliveriesFor(d.id)
+    const rows=deliveryRows(records)
+    const columns=['Date','Customer','Phone','Driver','Area','Items','Boxes','Delivery Fee','Sales Amount','Driver Commission','Status']
+    const totalAmount=records.reduce((sum,o)=>sum+Number(o.sales_amount||0),0)
+    const w=window.open('','_blank','width=1100,height=760'); if(!w)return
+    const head=columns.map(c=>`<th>${esc(c)}</th>`).join('')
+    const body=rows.map(r=>`<tr>${columns.map(c=>`<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')
+    w.document.write(`<!doctype html><html><head><title>MONET GARDEN - Driver Delivery Report</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#222}h1{font-size:20px;margin:0 0 4px}p{color:#666;font-size:12px;margin:0 0 18px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #ccc;padding:7px 8px;text-align:left}th{background:#f5f5f5}.total{margin-top:18px;padding:12px 14px;border:1px solid #ccc;background:#fafafa;text-align:right;font-size:16px;font-weight:700}.total span{margin-left:24px}@media print{body{padding:0}}</style></head><body><h1>MONET GARDEN — Driver Delivery Report</h1><p>Driver: ${esc(d.name)} · Printed ${new Date().toLocaleString()} · ${records.length} delivery records</p><table><thead><tr>${head}</tr></thead><tbody>${body||`<tr><td colspan="${columns.length}">No delivery records.</td></tr>`}</tbody></table><div class="total">TOTAL AMOUNT <span>RM ${totalAmount.toFixed(2)}</span></div></body></html>`)
+    w.document.close(); w.focus(); setTimeout(()=>{w.print();w.close()},250)
+  }
   function driverDeliveriesFor(id:string){return active.filter(o=>o.driver_id===id)}
 
   if(!user)return <main style={{minHeight:'100vh',display:'grid',placeItems:'center',padding:20}}><div className="card" style={{width:'min(430px,100%)',textAlign:'center'}}><Image src="/logo.png" alt="MONET GARDEN" width={145} height={145} className="logo"/><h1>MONET GARDEN</h1><Link className="btn primary" href="/">Back to Sign In</Link></div></main>
